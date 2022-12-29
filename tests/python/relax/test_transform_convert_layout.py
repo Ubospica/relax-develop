@@ -817,7 +817,7 @@ class conv2d_relu_concat_split:
     @R.function
     def main(
         x: R.Tensor((2, 3, 28, 28), dtype="float32"), w: R.Tensor((4, 3, 3, 3), dtype="float32")
-    ) -> R.Tuple(R.Tensor(None, dtype="float32", ndim=4), R.Tensor(None, dtype="float32", ndim=4)):
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
         # block 0
         gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
         gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
@@ -837,11 +837,12 @@ class conv2d_relu_concat_split:
         )
         gv3: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.relu(gv2)
         gv4: R.Tensor((2, 26, 26, 8), dtype="float32") = R.concatenate((gv2, gv3), axis=3)
-        gv5: R.Tensor((2, 8, 26, 26), dtype="float32") = R.transpose(gv4, axes=[0, 3, 1, 2])
-        gv6: R.Tuple(
-            R.Tensor((2, 4, 26, 26), dtype="float32"), R.Tensor((2, 4, 26, 26), dtype="float32")
-        ) = R.split(gv5, indices_or_sections=2, axis=1)
-        return gv6
+        gv5: R.Tuple(
+            R.Tensor((2, 26, 26, 4), dtype="float32"), R.Tensor((2, 26, 26, 4), dtype="float32")
+        ) = R.split(gv4, indices_or_sections=2, axis=3)
+        gv6: R.Tensor((2, 26, 26, 4), dtype="float32") = gv5[0]
+        gv7: R.Tensor((2, 4, 26, 26), dtype="float32") = R.transpose(gv6, axes=[0, 3, 1, 2])
+        return gv7
 
 
 def test_conv2d_relu_concat_split():
@@ -855,10 +856,350 @@ def test_conv2d_relu_concat_split():
             gv2: R.Tensor((2, 4, 26, 26), "float32") = R.nn.relu(gv)
             gv3: R.Tensor((2, 8, 26, 26), "float32") = R.concatenate((gv, gv2), axis=1)
             gv4 = R.split(gv3, indices_or_sections=2, axis=1)
-            return gv4
+            return gv4[0]
 
     mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dReLUConcatSplit)
     tvm.ir.assert_structural_equal(mod, conv2d_relu_concat_split)
+
+
+@I.ir_module
+class conv2d_maxpool2d:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"), w: R.Tensor((4, 3, 3, 3), dtype="float32")
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tensor((2, 13, 13, 4), dtype="float32") = R.nn.max_pool2d(
+            gv2,
+            pool_size=[2, 2],
+            strides=[2, 2],
+            dilation=[1, 1],
+            padding=[0, 0, 0, 0],
+            layout="NHWC",
+            out_layout="NHWC",
+            ceil_mode=False,
+        )
+        gv4: R.Tensor((2, 4, 13, 13), dtype="float32") = R.transpose(gv3, axes=[0, 3, 1, 2])
+        return gv4
+
+
+def test_conv2d_maxpool2d():
+    @I.ir_module
+    class Conv2dMaxPool2d:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"), w: R.Tensor((4, 3, 3, 3), "float32")
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2 = R.nn.max_pool2d(
+                gv,
+                pool_size=[2, 2],
+                strides=[2, 2],
+                padding=[0, 0],
+                layout="NCHW",
+                out_layout="NCHW",
+            )
+            return gv2
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dMaxPool2d)
+    tvm.ir.assert_structural_equal(mod, conv2d_maxpool2d)
+
+
+@I.ir_module
+class conv2d_avgpool2d:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"), w: R.Tensor((4, 3, 3, 3), dtype="float32")
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tensor((2, 13, 13, 4), dtype="float32") = R.nn.adaptive_avg_pool2d(
+            gv2, output_size=[13, 13], layout="NHWC"
+        )
+        gv4: R.Tensor((2, 4, 13, 13), dtype="float32") = R.transpose(gv3, axes=[0, 3, 1, 2])
+        return gv4
+
+
+def test_conv2d_avgpool2d():
+    @I.ir_module
+    class Conv2dAvgPool2d:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"), w: R.Tensor((4, 3, 3, 3), "float32")
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2 = R.nn.adaptive_avg_pool2d(gv, output_size=[13, 13], layout="NCHW")
+            return gv2
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dAvgPool2d)
+    tvm.ir.assert_structural_equal(mod, conv2d_avgpool2d)
+
+
+@I.ir_module
+class conv2d_softmax:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"), w: R.Tensor((4, 3, 3, 3), dtype="float32")
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.softmax(gv2, axis=3)
+        gv4: R.Tensor((2, 4, 26, 26), dtype="float32") = R.transpose(gv3, axes=[0, 3, 1, 2])
+        return gv4
+
+
+def test_conv2d_softmax():
+    @I.ir_module
+    class Conv2dSoftmax:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"), w: R.Tensor((4, 3, 3, 3), "float32")
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2 = R.nn.softmax(gv, axis=1)
+            return gv2
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dSoftmax)
+    tvm.ir.assert_structural_equal(mod, conv2d_softmax)
+
+
+@I.ir_module
+class conv2d_batchnorm:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"),
+        w: R.Tensor((4, 3, 3, 3), dtype="float32"),
+        gamma: R.Tensor((4,), dtype="float32"),
+        beta: R.Tensor((4,), dtype="float32"),
+        moving_mean: R.Tensor((4,), dtype="float32"),
+        moving_var: R.Tensor((4,), dtype="float32"),
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tuple(
+            R.Tensor((2, 26, 26, 4), dtype="float32"),
+            R.Tensor((4,), dtype="float32"),
+            R.Tensor((4,), dtype="float32"),
+        ) = R.nn.batch_norm(
+            gv2,
+            gamma,
+            beta,
+            moving_mean,
+            moving_var,
+            axis=3,
+            epsilon=1e-05,
+            center=True,
+            scale=True,
+        )
+        gv4: R.Tensor((2, 26, 26, 4), dtype="float32") = gv3[0]
+        gv5: R.Tensor((2, 4, 26, 26), dtype="float32") = R.transpose(gv4, axes=[0, 3, 1, 2])
+        return gv5
+
+
+def test_conv2d_batchnorm():
+    @I.ir_module
+    class Conv2dBatchNorm:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"),
+            w: R.Tensor((4, 3, 3, 3), "float32"),
+            gamma: R.Tensor((4,), dtype="float32"),
+            beta: R.Tensor((4,), dtype="float32"),
+            moving_mean: R.Tensor((4,), dtype="float32"),
+            moving_var: R.Tensor((4,), dtype="float32"),
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2: R.Tuple(
+                R.Tensor((2, 4, 26, 26), dtype="float32"),
+                R.Tensor((4,), dtype="float32"),
+                R.Tensor((4,), dtype="float32"),
+            ) = R.nn.batch_norm(gv, gamma, beta, moving_mean, moving_var, axis=1)
+            return gv2[0]
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dBatchNorm)
+    tvm.ir.assert_structural_equal(mod, conv2d_batchnorm)
+
+
+@I.ir_module
+class conv2d_layernorm:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"),
+        w: R.Tensor((4, 3, 3, 3), dtype="float32"),
+        gamma: R.Tensor((26, 26), dtype="float32"),
+        beta: R.Tensor((26, 26), dtype="float32"),
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.layer_norm(
+            gv2, gamma, beta, axis=[1, 2], epsilon=1e-05, center=True, scale=True
+        )
+        gv4: R.Tensor((2, 4, 26, 26), dtype="float32") = R.transpose(gv3, axes=[0, 3, 1, 2])
+        return gv4
+
+
+def test_conv2d_layernorm():
+    @I.ir_module
+    class Conv2dLayerNorm:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"),
+            w: R.Tensor((4, 3, 3, 3), "float32"),
+            gamma: R.Tensor((26, 26), dtype="float32"),
+            beta: R.Tensor((26, 26), dtype="float32"),
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2: R.Tensor((2, 4, 26, 26), dtype="float32") = R.nn.layer_norm(
+                gv, gamma, beta, axis=[-2, -1]
+            )
+            return gv2
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dLayerNorm)
+    tvm.ir.assert_structural_equal(mod, conv2d_layernorm)
+
+
+@I.ir_module
+class conv2d_resize2d:
+    @R.function
+    def main(
+        x: R.Tensor((2, 3, 28, 28), dtype="float32"),
+        w: R.Tensor((4, 3, 3, 3), dtype="float32")
+    ) -> R.Tensor(None, dtype="float32", ndim=4):
+        # block 0
+        gv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.transpose(x, axes=[0, 2, 3, 1])
+        gv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.transpose(w, axes=[0, 2, 3, 1])
+        gv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+            gv,
+            gv1,
+            strides=[1, 1],
+            padding=[0, 0, 0, 0],
+            dilation=[1, 1],
+            groups=1,
+            channels=None,
+            kernel_size=[3, 3],
+            data_layout="NHWC",
+            kernel_layout="OHWI",
+            out_layout="NHWC",
+            out_dtype="float32",
+        )
+        gv3: R.Tensor((2, 52, 52, 4), dtype="float32") = R.image.resize2d(
+            gv2,
+            size=[52, 52],
+            roi=[0.000000, 0.000000, 0.000000, 0.000000],
+            layout="NHWC",
+            method="linear",
+            coordinate_transformation_mode="half_pixel",
+            rounding_method="round",
+            cubic_alpha=-0.5,
+            cubic_exclude=0,
+            extrapolation_value=0,
+        )
+        gv4: R.Tensor((2, 4, 52, 52), dtype="float32") = R.transpose(gv3, axes=[0, 3, 1, 2])
+        return gv4
+
+
+def test_conv2d_resize2d():
+    @I.ir_module
+    class Conv2dResize2d:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"),
+            w: R.Tensor((4, 3, 3, 3), "float32")
+        ) -> R.Tensor(None, "float32", ndim=4):
+            gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(
+                x, w, kernel_size=[3, 3], out_dtype="float32"
+            )
+            gv2 = R.image.resize2d(gv, size=[52, 52], layout="NCHW")
+            return gv2
+
+    mod = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})(Conv2dResize2d)
+    tvm.ir.assert_structural_equal(mod, conv2d_resize2d)
 
 
 if __name__ == "__main__":
@@ -879,3 +1220,9 @@ if __name__ == "__main__":
     test_conv2d_cumsum_default_axis()
     test_conv2d_relu_concat()
     test_conv2d_relu_concat_split()
+    test_conv2d_maxpool2d()
+    test_conv2d_avgpool2d()
+    test_conv2d_softmax()
+    test_conv2d_batchnorm()
+    test_conv2d_layernorm()
+    test_conv2d_resize2d()

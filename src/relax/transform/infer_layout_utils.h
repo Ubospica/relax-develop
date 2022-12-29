@@ -28,13 +28,17 @@
 #define TVM_RELAX_TRANSFORMS_INFER_LAYOUT_UTILS_H_
 
 #include <tvm/relax/expr.h>
+#include <tvm/relax/nested_msg.h>
 #include <tvm/relax/op_attr_types.h>
 #include <tvm/tir/data_layout.h>
+
+#include "../op/tensor/transform.h"
 
 namespace tvm {
 namespace relax {
 
 using tir::Layout;
+using NLayout = NestedMsg<Layout>;
 
 /*
  * \brief An output structure to hold results from FInferCorrectLayout calls.
@@ -44,8 +48,8 @@ using tir::Layout;
  */
 class InferLayoutOutputNode : public Object {
  public:
-  Array<Layout> input_layouts;
-  Array<Layout> output_layouts;
+  Array<NLayout> input_layouts;
+  Array<NLayout> output_layouts;
   Attrs new_attrs;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
@@ -61,7 +65,7 @@ class InferLayoutOutputNode : public Object {
 
 class InferLayoutOutput : public ObjectRef {
  public:
-  InferLayoutOutput(Array<Layout> input_layouts, Array<Layout> output_layouts, Attrs new_attrs) {
+  InferLayoutOutput(Array<NLayout> input_layouts, Array<NLayout> output_layouts, Attrs new_attrs) {
     auto n = make_object<InferLayoutOutputNode>();
     n->input_layouts = std::move(input_layouts);
     n->output_layouts = std::move(output_layouts);
@@ -71,7 +75,47 @@ class InferLayoutOutput : public ObjectRef {
   TVM_DEFINE_OBJECT_REF_METHODS(InferLayoutOutput, ObjectRef, InferLayoutOutputNode);
 };
 
-using VarLayoutMap = Map<relax::Var, Map<String, relax::Var>>;
+struct NLayoutEqual {
+  bool operator()(const NLayout& a, const NLayout& b) const {
+    auto layout_equal = [](const Layout& a, const Layout& b) {
+      if (a.defined() && b.defined()) {
+        return a.name() == b.name();
+      } else {
+        return a.defined() == b.defined();
+      }
+    };
+    return Equal(a, b, layout_equal);
+  }
+};
+
+struct NLayoutHash {
+  size_t operator()(const NLayout& a) const {
+    std::string res = "";
+    auto fvisit = [&res](const Layout& l) { res += l.name(); };
+    ForEachLeaf(a, fvisit);
+    String str = String(res);
+    return String::HashBytes(str.data(), str.size());
+  }
+};
+
+using LayoutMap = std::unordered_map<NLayout, Var, NLayoutHash, NLayoutEqual>;
+using VarLayoutMap = std::unordered_map<Var, LayoutMap, ObjectPtrHash, ObjectPtrEqual>;
+
+class VarLayoutMapWrapperNode : public Object {
+ public:
+  VarLayoutMap inner;
+
+  void VisitAttrs(tvm::AttrVisitor* v) {}
+
+  TVM_DECLARE_BASE_OBJECT_INFO(VarLayoutMapWrapperNode, Object);
+
+  static constexpr const char* _type_key = "relax.transform.VarLayoutMapWrapper";
+};
+
+class VarLayoutMapWrapper : public ObjectRef {
+ public:
+  TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(VarLayoutMapWrapper, ObjectRef, VarLayoutMapWrapperNode);
+};
 
 /*!
  * \brief Layout convertion inferface.
@@ -81,14 +125,18 @@ using VarLayoutMap = Map<relax::Var, Map<String, relax::Var>>;
  */
 using FRelaxInferLayout = runtime::TypedPackedFunc<InferLayoutOutput(
     const Call& call, const Map<String, Array<String>>& desired_layouts,
-    VarLayoutMap var_layout_map)>;
+    VarLayoutMapWrapper var_layout_map)>;
+
+bool IsNLayout(const Type& type);
 
 /*!
  * \brief Initialize a layout given the number of dimensions.
  * \param ndim The number of dimensions.
  * \return The initialized layout.
  */
-std::string InitialLayout(size_t ndim);
+Layout InitialLayout(size_t ndim);
+
+NLayout InitialNLayout(const Type& type);
 
 /*!
  * \brief Transpose the input layout like the src layout to the dst layout.
@@ -105,51 +153,79 @@ Layout TransposeLike(const Layout& input, const Layout& src, const Layout& dst);
  * \param var The variable.
  * \return One valid layout of the variable.
  */
-Layout GetOneValidLayout(VarLayoutMap var_layout_map, const Expr& arg);
+NLayout GetOneValidNLayout(VarLayoutMapWrapper var_layout_map, const Expr& arg);
 
 InferLayoutOutput InferLayoutConv2d(const Call& call,
                                     const Map<String, Array<String>>& desired_layouts,
-                                    VarLayoutMap var_layout_map);
+                                    VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutPool2d(const Call& call,
+                                    const Map<String, Array<String>>& desired_layouts,
+                                    VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutAdaptiveAvgPool2D(const Call& call,
+                                               const Map<String, Array<String>>& desired_layouts,
+                                               VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutSoftmax(const Call& call,
+                                     const Map<String, Array<String>>& desired_layouts,
+                                     VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutBatchNorm(const Call& call,
+                                       const Map<String, Array<String>>& desired_layouts,
+                                       VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutLayerNorm(const Call& call,
+                                       const Map<String, Array<String>>& desired_layouts,
+                                       VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutResize2d(const Call& call,
+                                      const Map<String, Array<String>>& desired_layouts,
+                                      VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutUnaryEwise(const Call& call,
                                         const Map<String, Array<String>>& desired_layouts,
-                                        VarLayoutMap var_layout_map);
+                                        VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutBinaryEwise(const Call& call,
                                          const Map<String, Array<String>>& desired_layouts,
-                                         VarLayoutMap var_layout_map);
+                                         VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutTernaryEwise(const Call& call,
                                           const Map<String, Array<String>>& desired_layouts,
-                                          VarLayoutMap var_layout_map);
+                                          VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutReduce(const Call& call,
                                     const Map<String, Array<String>>& desired_layouts,
-                                    VarLayoutMap var_layout_map);
+                                    VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutTranspose(const Call& call,
                                        const Map<String, Array<String>>& desired_layouts,
-                                       VarLayoutMap var_layout_map);
+                                       VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutExpandDims(const Call& call,
                                         const Map<String, Array<String>>& desired_layouts,
-                                        VarLayoutMap var_layout_map);
+                                        VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutSqueeze(const Call& call,
                                      const Map<String, Array<String>>& desired_layouts,
-                                     VarLayoutMap var_layout_map);
+                                     VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutStridedSlice(const Call& call,
                                           const Map<String, Array<String>>& desired_layouts,
-                                          VarLayoutMap var_layout_map);
+                                          VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutCumsum(const Call& call,
                                     const Map<String, Array<String>>& desired_layouts,
-                                    VarLayoutMap var_layout_map);
+                                    VarLayoutMapWrapper var_layout_map);
 
 InferLayoutOutput InferLayoutConcatenate(const Call& call,
                                          const Map<String, Array<String>>& desired_layouts,
-                                         VarLayoutMap var_layout_map);
+                                         VarLayoutMapWrapper var_layout_map);
+
+InferLayoutOutput InferLayoutSplit(const Call& call,
+                                   const Map<String, Array<String>>& desired_layouts,
+                                   VarLayoutMapWrapper var_layout_map);
 
 }  // namespace relax
 }  // namespace tvm

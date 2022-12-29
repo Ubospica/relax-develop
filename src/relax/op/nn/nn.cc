@@ -69,7 +69,8 @@ RELAX_REGISTER_OP("relax.nn.softmax")
 )code" TVM_ADD_FILELINE)
     .set_attrs_type<SoftmaxAttrs>()
     .set_attr<FInferShape>("FInferShape", InferShapeUnaryBroadcast)
-    .set_attr<FInferType>("FInferType", InferTypeUnaryBroadcast);
+    .set_attr<FInferType>("FInferType", InferTypeUnaryBroadcast)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutSoftmax);
 
 TVM_REGISTER_GLOBAL("relax.op.nn.softmax").set_body_typed(MakeSoftmax);
 
@@ -106,7 +107,8 @@ RELAX_REGISTER_OP("relax.nn.batch_norm")
     .add_argument("moving_mean", "Tensor", "Running mean of input.")
     .add_argument("moving_var", "Tensor", "Running variance of input.")
     .set_attr<FInferShape>("FInferShape", InferShapeBatchNorm)
-    .set_attr<FInferType>("FInferType", InferTypeBatchNorm);
+    .set_attr<FInferType>("FInferType", InferTypeBatchNorm)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutBatchNorm);
 
 Expr MakeBatchNorm(Expr data, Expr gamma, Expr beta, Expr moving_mean, Expr moving_var,  //
                    int axis, double epsilon, bool center, bool scale) {
@@ -240,7 +242,8 @@ RELAX_REGISTER_OP("relax.nn.dropout")
     .set_num_inputs(1)
     .add_argument("data", "Tensor", "Input to which dropout will be applied.")
     .set_attr<FInferShape>("FInferShape", InferShapeDropout)
-    .set_attr<FInferType>("FInferType", InferTypeDropout);
+    .set_attr<FInferType>("FInferType", InferTypeDropout)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutUnaryEwise);
 
 Expr MakeDropout(Expr data, double rate) {
   ObjectPtr<DropoutAttrs> attrs = make_object<DropoutAttrs>();
@@ -291,7 +294,8 @@ RELAX_REGISTER_OP("relax.nn.layer_norm")
     .add_argument("gamma", "Tensor", "The gamma scale factor.")
     .add_argument("beta", "Tensor", "The beta offset factor.")
     .set_attr<FInferShape>("FInferShape", InferShapeLayerNorm)
-    .set_attr<FInferType>("FInferType", InferTypeLayerNorm);
+    .set_attr<FInferType>("FInferType", InferTypeLayerNorm)
+    .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutLayerNorm);
 
 Expr MakeLayerNorm(Expr data, Expr gamma, Expr beta, Array<Integer> axis, double epsilon,
                    bool center, bool scale) {
@@ -653,17 +657,21 @@ Expr InferShapeCrossEntropy(const Call& call, DiagnosticContext diag_ctx) {
     size_t ndim0 = s0->values.size();
     size_t ndim1 = s1->values.size();
     if (ndim0 != ndim1) {
-      diag_ctx.EmitFatal(Diagnostic::Error(call->span) << "The 2 arguments of CrossEntropy should be of the same dimension.");
+      diag_ctx.EmitFatal(Diagnostic::Error(call->span)
+                         << "The 2 arguments of CrossEntropy should be of the same dimension.");
     }
     arith::Analyzer ana;
     Array<PrimExpr> predictions_shape = s0->values;
     Array<PrimExpr> targets_shape = s1->values;
-    if (ana.CanProve(predictions_shape[ndim0-1] != targets_shape[ndim1-1])) {
-      diag_ctx.EmitFatal(Diagnostic::Error(call->span) << "The last dimension size of the 2 arguments of CrossEntropy must be equal.");
+    if (ana.CanProve(predictions_shape[ndim0 - 1] != targets_shape[ndim1 - 1])) {
+      diag_ctx.EmitFatal(
+          Diagnostic::Error(call->span)
+          << "The last dimension size of the 2 arguments of CrossEntropy must be equal.");
     }
     return ShapeExpr(Array<PrimExpr>{});
   } else {
-    return RuntimeDepShape();;
+    return RuntimeDepShape();
+    ;
   }
 }
 
@@ -684,8 +692,9 @@ Type InferTypeCrossEntropy(const Call& call, DiagnosticContext diag_ctx) {
   if (t0->IsUnknownDtype() || t1->IsUnknownDtype()) {
     output_dtype = DataType::Void();
   } else if (t0->dtype != t1->dtype) {
-    diag_ctx.EmitFatal(Diagnostic::Error(call->span) << "Data types " << t0->dtype << ", and"
-                                                     << t1->dtype << " must be equal for CrossEntropy");
+    diag_ctx.EmitFatal(Diagnostic::Error(call->span)
+                       << "Data types " << t0->dtype << ", and" << t1->dtype
+                       << " must be equal for CrossEntropy");
   } else {
     output_dtype = t0->dtype;
   }
