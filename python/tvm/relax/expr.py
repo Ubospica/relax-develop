@@ -17,7 +17,7 @@
 # pylint: disable=invalid-name, unused-import, super-init-not-called
 # pylint: disable=redefined-builtin
 """The expression nodes of Relax."""
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 import typing
 import numpy as _np  # type: ignore
 
