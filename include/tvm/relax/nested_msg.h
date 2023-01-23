@@ -347,15 +347,15 @@ NestedMsg<T> MapToNestedMsgBySInfo(Expr expr, FType fmapleaf) {
  * then recursively combines the results as tuple expr.
  *
  * \param msg The input nested message.
- * \param fmapleaf The mapping function for each leaf with signature `Expr fmapleaf(T)`.
+ * \param fmapleaf The mapping function for each leaf with signature `Expr fmapleaf(Optional<T>)`.
  * \tparam T the content type of nested msg.
  * \tparam FType The mapping function type.
  */
 template <typename T, typename FType>
 Expr NestedMsgToExpr(NestedMsg<T> msg, FType fmapleaf) {
-  ICHECK(!msg.IsNull()) << "Cannot map null msg.";
-
-  if (msg.IsLeaf()) {
+  if (msg.IsNull()) {
+    return fmapleaf(NullOpt);
+  } else if (msg.IsLeaf()) {
     return fmapleaf(msg.LeafValue());
   } else {
     ICHECK(msg.IsNested());
@@ -365,21 +365,24 @@ Expr NestedMsgToExpr(NestedMsg<T> msg, FType fmapleaf) {
     for (size_t i = 0; i < arr.size(); ++i) {
       subexpr.push_back(NestedMsgToExpr<T, FType>(arr[i], fmapleaf));
     }
+    // simplify: suppose t is a tuple of length n, transform (t[0], t[1], ..., t[n-1]) to t
     Optional<Expr> simplified_tuple;
     bool simplified_flag = false;
     if (subexpr.size() >= 1) {
       simplified_flag = true;
-      for (size_t i = 0; i < subexpr.size() && simplified_flag; ++i) {
+      for (size_t i = 0; i < subexpr.size(); ++i) {
         auto* node = subexpr[i].as<TupleGetItemNode>();
-        if (node == nullptr || node->index != static_cast<int>(i)) {
+        if (node == nullptr) {
           simplified_flag = false;
-        } else {
-          if (simplified_tuple.defined()) {
-            simplified_flag &= (simplified_tuple == node->tuple);
-          } else {
-            simplified_tuple = node->tuple;
-            ICHECK(simplified_tuple.defined());
-          }
+          break;
+        }
+        if (!simplified_tuple.defined()) {
+          simplified_tuple = node->tuple;
+          ICHECK(simplified_tuple.defined());
+        }
+        if (node->tuple != simplified_tuple || node->index != static_cast<int>(i)) {
+          simplified_flag = false;
+          break;
         }
       }
     }
