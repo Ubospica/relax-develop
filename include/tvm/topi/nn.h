@@ -660,7 +660,19 @@ inline tvm::te::Tensor batch_to_space_nd(const tvm::te::Tensor& data,
 inline Tensor nll_loss(const Tensor& predictions, const Tensor& targets, const Tensor& weights,
                        std::string reduction = "mean", int ignore_index = -100,
                        const std::string name = "nll_loss", const std::string tag = kBroadcast) {
-  auto T = tvm::te::compute(
+  tvm::te::Tensor T;
+  if (predictions.ndim() == 1) {
+    // prediction->shape = (C,), targets->shape = (), weights->shape = (C,)
+    T = tvm::te::compute(
+      targets->shape,
+      [&](const tvm::Array<tvm::tir::Var>& target_indices) {
+        auto c = targets();
+        return tvm::tir::Select(c != ignore_index, -predictions(c) * weights(c),
+                                tvm::tir::make_const(predictions->dtype, 0));
+      },
+      name, tag);
+  } else {
+    T = tvm::te::compute(
       targets->shape,
       [&](const tvm::Array<tvm::tir::Var>& target_indices) {
         auto c = targets(target_indices);
@@ -674,7 +686,11 @@ inline Tensor nll_loss(const Tensor& predictions, const Tensor& targets, const T
                                 tvm::tir::make_const(predictions->dtype, 0));
       },
       name, tag);
-  if (reduction == "mean") {
+  }
+  if (predictions.ndim() == 1) {
+    // in this case T->shape = (). There is no need to reduce
+    return T;
+  } else if (reduction == "mean") {
     auto W = tvm::te::compute(
         targets->shape,
         [&](const tvm::Array<tvm::tir::Var>& target_indices) {
