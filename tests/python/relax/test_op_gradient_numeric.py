@@ -32,6 +32,7 @@ def relax_check_gradients(
     dev: tvm._ffi.runtime_ctypes.Device,
     output_shape: Union[Tuple, List[Tuple]],
     tuple_input: bool = False,
+    ignore_grads: List[int] = [],
     **kwargs,  # attr for operators
 ):
     """Generate module and run it to check numberic gradients."""
@@ -46,7 +47,7 @@ def relax_check_gradients(
                 tvm_var = _numpy_to_var(_data, "")
                 struct_infos.append(tvm_var.struct_info)
             return relax.Var(var_name, relax.TupleStructInfo(struct_infos))
-        return relax.Var(var_name, relax.TensorStructInfo(data.shape, "float32"))
+        return relax.Var(var_name, relax.TensorStructInfo(data.shape, str(data.dtype)))
 
     def _numpy_to_tvm(data):
         if isinstance(data, list):
@@ -97,7 +98,8 @@ def relax_check_gradients(
     vm_0 = relax.VirtualMachine(ex_0, dev)
 
     def forward(*inputs):
-        inputs_tvm = [_numpy_to_tvm(i) for i in inputs]
+        inputs_iter = iter(inputs)
+        inputs_tvm = [_numpy_to_tvm(next(inputs_iter)) if i not in ignore_grads else _numpy_to_tvm(inputs_numpy[i]) for i in range(len(inputs_numpy))]
         result = vm_0[func_name](*inputs_tvm)
         result_numpy = _tvm_to_numpy(result)
         if isinstance(result_numpy, list):
@@ -127,9 +129,10 @@ def relax_check_gradients(
     vm_1 = relax.VirtualMachine(ex_1, dev)
     inputs_tvm = [_numpy_to_tvm(i) for i in inputs_numpy]
     weights_tvm = _numpy_to_tvm(weights)
-    result = vm_1[func_name](*inputs_tvm, weights_tvm)
+    result = _tvm_to_numpy(vm_1[func_name](*inputs_tvm, weights_tvm))
+    result_filtered = [result[i] for i in range(len(result)) if i not in ignore_grads]
 
-    check_numerical_grads(forward, inputs_numpy, _tvm_to_numpy(result))
+    check_numerical_grads(forward, inputs_numpy, result_filtered)
 
 
 @tvm.testing.parametrize_targets("llvm")
@@ -305,13 +308,13 @@ def test_tanh(target, dev):
 
 @tvm.testing.parametrize_targets("llvm")
 def test_concat(target, dev):
-    data_numpy1 = np.random.randint(1, 16, (3, 3)).astype(np.float32)
-    data_numpy2 = np.random.randint(1, 16, (3, 4)).astype(np.float32)
-    data_numpy3 = np.random.randint(1, 16, (3, 5)).astype(np.float32)
+    data1_numpy = np.random.randint(1, 16, (3, 3)).astype(np.float32)
+    data2_numpy = np.random.randint(1, 16, (3, 4)).astype(np.float32)
+    data3_numpy = np.random.randint(1, 16, (3, 5)).astype(np.float32)
     relax_check_gradients(
         relax.op.concat,
         "relax.concat",
-        [data_numpy1, data_numpy2, data_numpy3],
+        [data1_numpy, data2_numpy, data3_numpy],
         target,
         dev,
         (3, 12),
@@ -351,58 +354,43 @@ def test_split_section(target, dev):
 
 
 @tvm.testing.parametrize_targets("llvm")
-def test_cross_entropy_without_logits(target, dev):
-    data_numpy1 = np.random.randint(1, 16, (3,)).astype(np.float32)
-    data_numpy2 = np.random.randint(1, 16, (3,)).astype(np.float32)
+def test_nll_loss(target, dev):
+    data1_numpy = np.random.randint(0, 16, (2, 3, 4)).astype(np.float32)
+    data2_numpy = np.random.randint(0, 3, (2, 4)).astype(np.int64)
+    data3_numpy = np.random.randint(0, 16, (3,)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.cross_entropy_without_logits,
-        "relax.nn.cross_entropy_without_logits",
-        [data_numpy1, data_numpy2],
-        target,
-        dev,
-        (),
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean'
+    )
+    relax_check_gradients(
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='sum'
+    )
+    relax_check_gradients(
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (2, 4), ignore_grads=[1,2], reduction='none'
+    )
+    relax_check_gradients(
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean', ignore_index=1
+    )
+    relax_check_gradients(
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean', ignore_index=1
+    )
+    relax_check_gradients(
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy], target, dev, (), ignore_grads=[1,], reduction='mean', ignore_index=1
     )
 
 
 @tvm.testing.parametrize_targets("llvm")
-def test_cross_entropy_without_logits_batch(target, dev):
-    data_numpy1 = np.random.randint(1, 16, (2, 3)).astype(np.float32)
-    data_numpy2 = np.random.randint(1, 16, (2, 3)).astype(np.float32)
+def test_nll_loss_no_batch(target, dev):
+    data1_numpy = np.random.randint(0, 16, (3,)).astype(np.float32)
+    data2_numpy = np.random.randint(0, 3, ()).astype(np.int64)
+    data3_numpy = np.random.randint(1, 16, (3,)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.cross_entropy_without_logits,
-        "relax.nn.cross_entropy_without_logits",
-        [data_numpy1, data_numpy2],
-        target,
-        dev,
-        (),
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean'
     )
-
-
-@tvm.testing.parametrize_targets("llvm")
-def test_cross_entropy_with_logits(target, dev):
-    data_numpy1 = np.random.randint(1, 16, (3,)).astype(np.float32)
-    data_numpy2 = np.random.randint(1, 16, (3,)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.cross_entropy_with_logits,
-        "relax.nn.cross_entropy_with_logits",
-        [data_numpy1, data_numpy2],
-        target,
-        dev,
-        (),
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='sum'
     )
-
-
-@tvm.testing.parametrize_targets("llvm")
-def test_cross_entropy_with_logits_batch(target, dev):
-    data_numpy1 = np.random.randint(1, 16, (2, 3)).astype(np.float32)
-    data_numpy2 = np.random.randint(1, 16, (2, 3)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.cross_entropy_with_logits,
-        "relax.nn.cross_entropy_with_logits",
-        [data_numpy1, data_numpy2],
-        target,
-        dev,
-        (),
+        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='none'
     )
 
 

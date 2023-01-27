@@ -31,6 +31,7 @@ from .set import *
 from .statistical import *
 from .ternary import *
 from .unary import *
+from .gradient_ops import *
 from . import builtin
 from . import image
 from . import memory

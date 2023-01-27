@@ -687,10 +687,10 @@ inline Tensor nll_loss(const Tensor& predictions, const Tensor& targets, const T
       },
       name, tag);
   }
-  if (predictions.ndim() == 1) {
-    // in this case T->shape = (). There is no need to reduce
-    return T;
-  } else if (reduction == "mean") {
+  auto sum_update = [] (tvm::te::Tensor input) {
+    return input.ndim() == 0 ? input : topi::sum(input, {});
+  };
+  if (reduction == "mean") {
     auto W = tvm::te::compute(
         targets->shape,
         [&](const tvm::Array<tvm::tir::Var>& target_indices) {
@@ -699,9 +699,9 @@ inline Tensor nll_loss(const Tensor& predictions, const Tensor& targets, const T
                                   tvm::tir::make_const(predictions->dtype, 0));
         },
         name, tag);
-    return topi::divide(topi::sum(T, {}), topi::sum(W, {}));
+    return topi::divide(sum_update(T), sum_update(W));
   } else if (reduction == "sum") {
-    return topi::sum(T, {});
+    return sum_update(T);
   } else {  // reduction == "none"
     return T;
   }

@@ -21,10 +21,12 @@ from tvm import relax
 from tvm.arith import Analyzer
 from tvm.relax.expr import Call, Var, Expr, ShapeExpr
 from tvm._ffi.base import TVMError
+from tvm.relax.op.gradient_ops import nll_loss_backward_pred
+from tvm.relax.op.index import take
 
 from ..block_builder import BlockBuilder
 from ...tir import PrimExpr
-from .base import register_gradient
+from .base import register_gradient, shape_of
 
 from .unary import (
     log,
@@ -432,57 +434,12 @@ def log_softmax_grad(
     ]
 
 
-def _divide_batch(x: Expr, expr: Expr):
-    if x.struct_info.ndim > 1:
-        # TODO(chaofan, yixin): support symbolic shape
-        x_shape = _get_shape(x)
-        batch_size = int(x_shape[0])
-        # batch_size = take(shape_of(x), relax.const(0, dtype="int32"), axis=0)
-        # expr = divide(expr, batch_size)
-        expr = divide(expr, relax.const(batch_size, dtype=expr.struct_info.dtype))
-    return expr
-
-
-@register_gradient("relax.nn.cross_entropy_without_logits")
-def cross_entropy_without_logits_grad(
-    orig_var: Var,
-    orig_call: Call,
-    output_grad: Var,
-    ctx: BlockBuilder,
-):
-    """Gradient of cross_entropy_without_logits.
-
-    Forward Form:
-        z = cross_entropy_without_logits(x, y)
-
-    Backward:
-        Returns [-z_grad * y / x, -z_grad * log(x)].
-        If it has batch_size N, the results should divide by N.
-    """
-    x, y = orig_call.args
-    output_grad = _divide_batch(x, output_grad)
-    return [negative(multiply(output_grad, divide(y, x))), negative(multiply(output_grad, log(x)))]
-
-
-@register_gradient("relax.nn.cross_entropy_with_logits")
-def cross_entropy_with_logits_grad(
-    orig_var: Var,
-    orig_call: Call,
-    output_grad: Var,
-    ctx: BlockBuilder,
-):
-    """Gradient of cross_entropy_without_logits.
-
-    Forward Form:
-        z = cross_entropy_with_logits(x, y)
-
-    Backward:
-        Returns [-z_grad * y, -z_grad * x].
-        If it has batch_size N, the results should divide by N.
-    """
-    x, y = orig_call.args
-    output_grad = _divide_batch(x, output_grad)
-    return [negative(multiply(output_grad, y)), negative(multiply(output_grad, x))]
+def _sizeof(expr: Expr, dtype: str) -> Expr:
+    res = 1
+    # TODO(chaofan, yixin): support symbolic shape
+    for x in expr.struct_info.shape:
+        res *= int(x)
+    return relax.const(res, dtype)
 
 
 @register_gradient("relax.nn.nll_loss")
@@ -495,12 +452,22 @@ def nll_loss_grad(
     """Gradient of cross_entropy_without_logits.
 
     Forward Form:
-        z = cross_entropy_with_logits(x, y)
+        z = nll_loss(predictions, targets, weights, reduction, ignore_index: int = -100)
 
     Backward:
         Returns [-z_grad * y, -z_grad * x].
         If it has batch_size N, the results should divide by N.
     """
-    x, y = orig_call.args
-    output_grad = _divide_batch(x, output_grad)
-    return [negative(multiply(output_grad, y)), negative(multiply(output_grad, x))]
+    pred_grad = nll_loss_backward_pred(output_grad, *orig_call.args, reduction=orig_call.attrs.reduction, ignore_index=orig_call.attrs.ignore_index)
+    tgt_grad = zeros(orig_call.args[1].struct_info.shape, orig_call.args[1].struct_info.dtype)
+    if len(orig_call.args) == 2:
+        return [pred_grad, tgt_grad]
+
+    weight_grad = zeros(orig_call.args[2].struct_info.shape, orig_call.args[2].struct_info.dtype)
+    return [pred_grad, tgt_grad, weight_grad]
+
+    # pred, tgt = orig_call.args
+    # if orig_call.attrs.reduction == 'mean':
+    #     output_grad = divide(broadcast_to(output_grad, _get_shape(tgt)), _sizeof(tgt, output_grad.struct_info.dtype))
+    # elif orig_call.attrs.reduction == 'sum':
+    #     output_grad = broadcast_to(output_grad, _get_shape(tgt))

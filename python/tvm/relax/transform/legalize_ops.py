@@ -581,7 +581,11 @@ def _nn_dropout(bb: BlockBuilder, call: Call) -> Expr:
 
 def _nn_nll_loss(bb: BlockBuilder, call: Call) -> Expr:
     def nll_loss_without_weight(predictions, targets, reduction, ignore_index):
-        weight = topi.full((predictions.shape[1] if len(predictions.shape) > 1 else predictions.shape[0],), predictions.dtype, 1.0)
+        weight = topi.full(
+            (predictions.shape[1] if len(predictions.shape) > 1 else predictions.shape[0],),
+            predictions.dtype,
+            1.0,
+        )
         return topi.nn.nll_loss(predictions, targets, weight, reduction, ignore_index)
 
     if len(call.args) == 2:
@@ -619,6 +623,97 @@ def _image_resize2d(bb: BlockBuilder, call: Call) -> Expr:
         bicubic_alpha=call.attrs.cubic_alpha,
         bicubic_exclude=call.attrs.cubic_exclude,
         extrapolation_value=call.attrs.extrapolation_value,
+    )
+
+
+##################### Gradient Operators #####################
+
+
+# def nll_loss_backward_pred(
+#     output_grad: Expr,
+#     predictions: Expr,
+#     targets: Expr,
+#     weights: Optional[Expr] = None,
+#     reduction: str = "mean",
+#     ignore_index: int = -100,
+# ) -> Expr:
+
+# auto W = tvm::te::compute(
+#     targets->shape,
+#     [&](const tvm::Array<tvm::tir::Var>& target_indices) {
+#       auto c = targets(target_indices);
+#       return tvm::tir::Select(c != ignore_index, weights(c),
+#                               tvm::tir::make_const(predictions->dtype, 0));
+#     },
+#     name, tag);
+def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
+    # topi.sum don't support zero-dim x
+    # we add support for that
+    def topi_sum_extend(x):
+        return x if x.ndim == 0 else topi.sum(x)
+    def nll_loss_backward_pred_te(
+        output_grad, predictions: te.Tensor, targets, weights, reduction, ignore_index
+    ):
+        # handle ignore_index
+        if ignore_index >= 0:
+            weights = te.compute(
+                weights.shape,
+                lambda i: tir.Select(
+                    i == ignore_index, tir.const(0, weights.dtype), weights(i)
+                ), "weights_new"
+            )
+
+        all_weights = te.compute(targets.shape, lambda *i: weights(targets(*i)), "all_weights")
+
+        # handle reduction
+        if reduction == "sum":
+            output_grad = topi.broadcast_to(output_grad, targets.shape)
+        elif reduction == "mean":
+            output_grad = topi.divide(
+                topi.broadcast_to(output_grad, targets.shape), topi_sum_extend(all_weights)
+            )
+
+        # handle no batch
+        if predictions.ndim == 1:
+            return te.compute(
+                predictions.shape,
+                lambda i: tir.Select(
+                    i == targets(), -all_weights() * output_grad(), tir.const(0, predictions.dtype)
+                ), "pred_grad"
+            )
+
+        return te.compute(
+            predictions.shape,
+            lambda *i: tir.Select(
+                i[1] == targets(*i[:1], *i[2:]),
+                -all_weights(*i[:1], *i[2:]) * output_grad(*i[:1], *i[2:]),
+                tir.const(0, predictions.dtype),
+            ), "pred_grad"
+        )
+
+    def nll_loss_backward_pred_te_no_weight(
+        output_grad, predictions, targets, reduction, ignore_index
+    ):
+        weight = topi.full(
+            (predictions.shape[1] if len(predictions.shape) > 1 else predictions.shape[0],),
+            predictions.dtype,
+            1.0,
+        )
+        return nll_loss_backward_pred_te(output_grad, predictions, targets, weight, reduction, ignore_index)
+
+    if len(call.args) == 3:
+        return bb.call_te(
+            nll_loss_backward_pred_te_no_weight,
+            *call.args,
+            reduction=call.attrs.reduction,
+            ignore_index=call.attrs.ignore_index,
+        )
+
+    return bb.call_te(
+        nll_loss_backward_pred_te,
+        *call.args,
+        reduction=call.attrs.reduction,
+        ignore_index=call.attrs.ignore_index,
     )
 
 
@@ -709,6 +804,8 @@ DEFAULT_OP_LEGALIZE_MAP: Dict[str, LegalizeFunc] = {
     "relax.nn.nll_loss": _nn_nll_loss,
     # Image
     "relax.image.resize2d": _image_resize2d,
+    # Gradient
+    "relax.nll_loss_backward_pred": _nn_nll_loss_backward_pred,
     # Todo(relax-team): Introduce cumsum for GPT-2
     # "relax.cumsum": _cumsum,
 }
