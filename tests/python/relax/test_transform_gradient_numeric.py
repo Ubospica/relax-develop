@@ -92,7 +92,7 @@ def test_mlp_blockbuilder():
     b_list = [
         relax.Var("b_" + str(i), R.Tensor((hidden_size,), "float32")) for i in range(layers - 1)
     ] + [relax.Var("b_" + str(layers - 1), R.Tensor((out_size,), "float32"))]
-    label_list = [relax.Var("y", R.Tensor((batch_size, out_size), "float32"))]
+    label_list = [relax.Var("y", R.Tensor((batch_size,), "int64"))]
     args_list = input_list + w_list + b_list + label_list
 
     bb = relax.BlockBuilder()
@@ -104,7 +104,7 @@ def test_mlp_blockbuilder():
                 lv1 = bb.emit(R.add(lv0, b_list[i]))
                 current = bb.emit(R.nn.relu(lv1) if i < layers - 1 else lv1)
             logits = R.nn.log_softmax(current)
-            loss = bb.emit(R.nn.cross_entropy_with_logits(logits, label_list[0]))
+            loss = bb.emit(R.nn.nll_loss(logits, label_list[0]))
             gv0 = bb.emit_output(loss)
         bb.emit_func_output(gv0)
 
@@ -132,7 +132,7 @@ def test_mlp_blockbuilder():
 
 def test_complex():
     cst = relax.const(np.ones((6,)), dtype="float32")
-    cst1 = relax.const(np.array([0, 0, 0, 1, 0, 0]), dtype="float32")
+    cst1 = relax.const(np.array([3]), dtype="int64")
 
     @tvm.script.ir_module
     class Before:
@@ -164,7 +164,7 @@ def test_complex():
                 lv23 = R.sum(lv22, axis=[1, 2])
                 lv24 = R.add(lv19, lv23)
                 lv25 = R.nn.log_softmax(lv24)
-                gv = R.nn.cross_entropy_with_logits(lv25, cst1)
+                gv = R.nn.nll_loss(lv25, cst1)
                 R.output(gv)
             return gv
 

@@ -963,345 +963,6 @@ def test_log_softmax_symbolic():
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
-def test_cross_entropy_without_logits():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithoutLogits:
-        @R.function
-        def main(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_without_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor((3,), dtype="float32"), y: R.Tensor((3,), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            gv = R.call_tir(cross_entropy_without_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_without_logits(rxplaceholder: T.Buffer[T.int64(3), "float32"], rxplaceholder_1: T.Buffer[T.int64(3), "float32"], T_multiply: T.Buffer[(), "float32"]):
-            T.func_attr({"tir.noalias": True})
-            compute = T.alloc_buffer([T.int64(3)], dtype="float32")
-            T_multiply_1 = T.alloc_buffer([T.int64(3)], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            for i0 in T.serial(T.int64(3)):
-                with T.block("compute"):
-                    i0_1 = T.axis.spatial(T.int64(3), i0)
-                    T.reads(rxplaceholder[i0_1])
-                    T.writes(compute[i0_1])
-                    compute[i0_1] = T.log(rxplaceholder[i0_1], dtype="float32")
-            for i0 in T.serial(T.int64(3)):
-                with T.block("T_multiply"):
-                    ax0 = T.axis.spatial(T.int64(3), i0)
-                    T.reads(compute[ax0], rxplaceholder_1[ax0])
-                    T.writes(T_multiply_1[ax0])
-                    T_multiply_1[ax0] = compute[ax0] * rxplaceholder_1[ax0]
-            for i0 in T.serial(T.int64(3)):
-                with T.block("T_multiply_red"):
-                    k0 = T.axis.reduce(T.int64(3), i0)
-                    T.reads(T_multiply_1[k0])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply_1[k0]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply[()])
-                T_multiply[()] = T_multiply_red[()] * T.float32(-1)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithoutLogits)
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
-def test_cross_entropy_without_logits_batch():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithoutLogits:
-        @R.function
-        def main(x: R.Tensor((2, 3), "float32"), y: R.Tensor((2, 3), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_without_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor((2, 3), dtype="float32"), y: R.Tensor((2, 3), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            # block 0
-            gv = R.call_tir(cross_entropy_without_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_without_logits(rxplaceholder: T.Buffer[(T.int64(2), T.int64(3)), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3)), "float32"], T_divide: T.Buffer[(), "float32"]):
-            T.func_attr({"tir.noalias": True})
-            compute = T.alloc_buffer([T.int64(2), T.int64(3)], dtype="float32")
-            T_multiply = T.alloc_buffer([T.int64(2), T.int64(3)], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            T_multiply_1 = T.alloc_buffer([], dtype="float32")
-            for i0, i1 in T.grid(T.int64(2), T.int64(3)):
-                with T.block("compute"):
-                    i0_1, i1_1 = T.axis.remap("SS", [i0, i1])
-                    T.reads(rxplaceholder[i0_1, i1_1])
-                    T.writes(compute[i0_1, i1_1])
-                    compute[i0_1, i1_1] = T.log(rxplaceholder[i0_1, i1_1], dtype="float32")
-            for i0, i1 in T.grid(T.int64(2), T.int64(3)):
-                with T.block("T_multiply"):
-                    ax0, ax1 = T.axis.remap("SS", [i0, i1])
-                    T.reads(compute[ax0, ax1], rxplaceholder_1[ax0, ax1])
-                    T.writes(T_multiply[ax0, ax1])
-                    T_multiply[ax0, ax1] = compute[ax0, ax1] * rxplaceholder_1[ax0, ax1]
-            for i0, i1 in T.grid(T.int64(2), T.int64(3)):
-                with T.block("T_multiply_red"):
-                    k0, k1 = T.axis.remap("RR", [i0, i1])
-                    T.reads(T_multiply[k0, k1])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply[k0, k1]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply_1[()])
-                T_multiply_1[()] = T_multiply_red[()] * T.float32(-1)
-            with T.block("T_divide"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_1[()])
-                T.writes(T_divide[()])
-                T_divide[()] = T_multiply_1[()] * T.float32(0.5)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithoutLogits)
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
-def test_cross_entropy_without_logits_batch_symbolic():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithoutLogits:
-        @R.function
-        def main(x: R.Tensor(("n", "m"), "float32"), y: R.Tensor(("n", "m"), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            n = T.var("int64")
-            m = T.var("int64")
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_without_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor(("n", "m"), dtype="float32"), y: R.Tensor(("n", "m"), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            gv = R.call_tir(cross_entropy_without_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_without_logits(
-            var_rxplaceholder: T.handle,
-            var_rxplaceholder_1: T.handle,
-            T_divide: T.Buffer[(), "float32"],
-        ):
-            T.func_attr({"tir.noalias": True})
-            m = T.var("int64")
-            n = T.var("int64")
-            rxplaceholder = T.match_buffer(var_rxplaceholder, [n, m], dtype="float32")
-            rxplaceholder_1 = T.match_buffer(var_rxplaceholder_1, [n, m], dtype="float32")
-            compute = T.alloc_buffer([n, m], dtype="float32")
-            T_multiply = T.alloc_buffer([n, m], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            T_multiply_1 = T.alloc_buffer([], dtype="float32")
-            for i0, i1 in T.grid(n, m):
-                with T.block("compute"):
-                    v_i0, v_i1 = T.axis.remap("SS", [i0, i1])
-                    T.reads(rxplaceholder[v_i0, v_i1])
-                    T.writes(compute[v_i0, v_i1])
-                    compute[v_i0, v_i1] = T.log(rxplaceholder[v_i0, v_i1], dtype="float32")
-            for ax0, ax1 in T.grid(n, m):
-                with T.block("T_multiply"):
-                    v_ax0, v_ax1 = T.axis.remap("SS", [ax0, ax1])
-                    T.reads(compute[v_ax0, v_ax1], rxplaceholder_1[v_ax0, v_ax1])
-                    T.writes(T_multiply[v_ax0, v_ax1])
-                    T_multiply[v_ax0, v_ax1] = compute[v_ax0, v_ax1] * rxplaceholder_1[v_ax0, v_ax1]
-            for k0, k1 in T.grid(n, m):
-                with T.block("T_multiply_red"):
-                    v_k0, v_k1 = T.axis.remap("RR", [k0, k1])
-                    T.reads(T_multiply[v_k0, v_k1])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply[v_k0, v_k1]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply_1[()])
-                T_multiply_1[()] = T_multiply_red[()] * T.float32(-1)
-            with T.block("T_divide"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_1[()])
-                T.writes(T_divide[()])
-                T_divide[()] = T_multiply_1[()] / T.Cast("float32", n)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithoutLogits)
-    mod.show()
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
-def test_cross_entropy_with_logits():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithLogits:
-        @R.function
-        def main(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_with_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor((3,), dtype="float32"), y: R.Tensor((3,), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            gv = R.call_tir(cross_entropy_with_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_with_logits(rxplaceholder: T.Buffer[T.int64(3), "float32"], rxplaceholder_1: T.Buffer[T.int64(3), "float32"], T_multiply: T.Buffer[(), "float32"]):
-            T.func_attr({"tir.noalias": True})
-            T_multiply_1 = T.alloc_buffer([T.int64(3)], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            for i0 in T.serial(T.int64(3)):
-                with T.block("T_multiply"):
-                    ax0 = T.axis.spatial(T.int64(3), i0)
-                    T.reads(rxplaceholder[ax0], rxplaceholder_1[ax0])
-                    T.writes(T_multiply_1[ax0])
-                    T_multiply_1[ax0] = rxplaceholder[ax0] * rxplaceholder_1[ax0]
-            for i0 in T.serial(T.int64(3)):
-                with T.block("T_multiply_red"):
-                    k0 = T.axis.reduce(T.int64(3), i0)
-                    T.reads(T_multiply_1[k0])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply_1[k0]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply[()])
-                T_multiply[()] = T_multiply_red[()] * T.float32(-1)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithLogits)
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
-def test_cross_entropy_with_logits_batch():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithLogits:
-        @R.function
-        def main(x: R.Tensor((2, 3), "float32"), y: R.Tensor((2, 3), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_with_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor((2, 3), dtype="float32"), y: R.Tensor((2, 3), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            gv = R.call_tir(cross_entropy_with_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_with_logits(rxplaceholder: T.Buffer[(T.int64(2), T.int64(3)), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3)), "float32"], T_divide: T.Buffer[(), "float32"]):
-            T.func_attr({"tir.noalias": True})
-            T_multiply = T.alloc_buffer([T.int64(2), T.int64(3)], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            T_multiply_1 = T.alloc_buffer([], dtype="float32")
-            for i0, i1 in T.grid(T.int64(2), T.int64(3)):
-                with T.block("T_multiply"):
-                    ax0, ax1 = T.axis.remap("SS", [i0, i1])
-                    T.reads(rxplaceholder[ax0, ax1], rxplaceholder_1[ax0, ax1])
-                    T.writes(T_multiply[ax0, ax1])
-                    T_multiply[ax0, ax1] = rxplaceholder[ax0, ax1] * rxplaceholder_1[ax0, ax1]
-            for i0, i1 in T.grid(T.int64(2), T.int64(3)):
-                with T.block("T_multiply_red"):
-                    k0, k1 = T.axis.remap("RR", [i0, i1])
-                    T.reads(T_multiply[k0, k1])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply[k0, k1]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply_1[()])
-                T_multiply_1[()] = T_multiply_red[()] * T.float32(-1)
-            with T.block("T_divide"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_1[()])
-                T.writes(T_divide[()])
-                T_divide[()] = T_multiply_1[()] * T.float32(0.5)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithLogits)
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
-def test_cross_entropy_with_logits_batch_symbolic():
-    # fmt: off
-    @tvm.script.ir_module
-    class CrossEntropyWithLogits:
-        @R.function
-        def main(x: R.Tensor(("n", "m"), "float32"), y: R.Tensor(("n", "m"), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            n = T.var("int64")
-            m = T.var("int64")
-            gv: R.Tensor((), "float32") = R.nn.cross_entropy_with_logits(x, y)
-            return gv
-
-    @tvm.script.ir_module
-    class Expected:
-        @R.function
-        def main(x: R.Tensor(("n", "m"), dtype="float32"), y: R.Tensor(("n", "m"), dtype="float32")) -> R.Tensor(dtype="float32", ndim=2):
-            gv = R.call_tir(cross_entropy_with_logits, (x, y), R.Tensor((), dtype="float32"))
-            return gv
-
-        @T.prim_func
-        def cross_entropy_with_logits(var_rxplaceholder: T.handle, var_rxplaceholder_1: T.handle, T_divide: T.Buffer[(), "float32"]):
-            T.func_attr({"tir.noalias": True})
-            m = T.var("int64")
-            n = T.var("int64")
-            rxplaceholder = T.match_buffer(var_rxplaceholder, [n, m], dtype="float32")
-            rxplaceholder_1 = T.match_buffer(var_rxplaceholder_1, [n, m], dtype="float32")
-            T_multiply = T.alloc_buffer([n, m], dtype="float32")
-            T_multiply_red = T.alloc_buffer([], dtype="float32")
-            T_multiply_1 = T.alloc_buffer([], dtype="float32")
-            for ax0, ax1 in T.grid(n, m):
-                with T.block("T_multiply"):
-                    v_ax0, v_ax1 = T.axis.remap("SS", [ax0, ax1])
-                    T.reads(rxplaceholder[v_ax0, v_ax1], rxplaceholder_1[v_ax0, v_ax1])
-                    T.writes(T_multiply[v_ax0, v_ax1])
-                    T_multiply[v_ax0, v_ax1] = rxplaceholder[v_ax0, v_ax1] * rxplaceholder_1[v_ax0, v_ax1]
-            for k0, k1 in T.grid(n, m):
-                with T.block("T_multiply_red"):
-                    v_k0, v_k1 = T.axis.remap("RR", [k0, k1])
-                    T.reads(T_multiply[v_k0, v_k1])
-                    T.writes(T_multiply_red[()])
-                    with T.init():
-                        T_multiply_red[()] = T.float32(0)
-                    T_multiply_red[()] = T_multiply_red[()] + T_multiply[v_k0, v_k1]
-            with T.block("T_multiply_1"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_red[()])
-                T.writes(T_multiply_1[()])
-                T_multiply_1[()] = T_multiply_red[()] * T.float32(-1)
-            with T.block("T_divide"):
-                vi = T.axis.spatial(1, T.int64(0))
-                T.reads(T_multiply_1[()])
-                T.writes(T_divide[()])
-                T_divide[()] = T_multiply_1[()] / T.Cast("float32", n)
-    # fmt: on
-
-    mod = LegalizeOps()(CrossEntropyWithLogits)
-    tvm.ir.assert_structural_equal(mod, Expected)
-
-
 def test_batch_norm():
     # fmt: off
     @tvm.script.ir_module
@@ -1715,7 +1376,7 @@ def test_nll_no_weight():
         @R.function
         def main(predictions: R.Tensor((2, 3, 4, 5), dtype="float32"), targets: R.Tensor((2, 4, 5), dtype="int64"),) -> R.Tensor((), dtype="float32"):
             # block 0
-            gv = R.call_tir(nll_loss_without_weight, (predictions, targets), (), dtype="float32")
+            gv = R.call_tir(nll_loss_without_weight, (predictions, targets), R.Tensor((), dtype="float32"))
             return gv
 
         @T.prim_func
@@ -1788,11 +1449,11 @@ def test_nll_no_batch():
         @R.function
         def main(predictions: R.Tensor(("C",), dtype="float32"), targets: R.Tensor((), dtype="int64"), weights: R.Tensor(("C",), dtype="float32")) -> R.Tensor((), dtype="float32"):
             # block 0
-            gv = R.call_tir(nll_loss, (predictions, targets, weights), (), dtype="float32")
+            gv = R.call_tir(nll_loss, (predictions, targets, weights), out_sinfo=R.Tensor((), dtype="float32"))
             return gv
 
         @T.prim_func
-        def nll_loss(var_rxplaceholder: T.handle, rxplaceholder: T.Buffer[(), "int64"], var_rxplaceholder_1: T.handle, nll_loss: T.Buffer[(), "float32"]):
+        def nll_loss(var_rxplaceholder: T.handle, rxplaceholder: T.Buffer[(), "int64"], var_rxplaceholder_1: T.handle, T_divide: T.Buffer[(), "float32"]):
             # function attr dict
             T.func_attr({"tir.noalias": True})
             C = T.var("int64")
@@ -1800,11 +1461,23 @@ def test_nll_no_batch():
             rxplaceholder_2 = T.match_buffer(var_rxplaceholder_1, [C], dtype="float32")
             # body
             # with T.block("root")
+            nll_loss = T.alloc_buffer([], dtype="float32")
+            nll_loss_1 = T.alloc_buffer([], dtype="float32")
             with T.block("nll_loss"):
                 vi = T.axis.spatial(T.int64(1), T.int64(0))
                 T.reads(rxplaceholder[()], rxplaceholder_1[rxplaceholder[()]], rxplaceholder_2[rxplaceholder[()]])
                 T.writes(nll_loss[()])
                 nll_loss[()] = T.Select(rxplaceholder[()] != T.int64(-1), (T.float32(0) - rxplaceholder_1[rxplaceholder[()]]) * rxplaceholder_2[rxplaceholder[()]], T.float32(0))
+            with T.block("nll_loss_1"):
+                vi = T.axis.spatial(T.int64(1), T.int64(0))
+                T.reads(rxplaceholder[()], rxplaceholder_2[rxplaceholder[()]])
+                T.writes(nll_loss_1[()])
+                nll_loss_1[()] = T.Select(rxplaceholder[()] != T.int64(-1), rxplaceholder_2[rxplaceholder[()]], T.float32(0))
+            with T.block("T_divide"):
+                vi = T.axis.spatial(1, T.int64(0))
+                T.reads(nll_loss[()], nll_loss_1[()])
+                T.writes(T_divide[()])
+                T_divide[()] = nll_loss[()] / nll_loss_1[()]
     # fmt: on
 
     mod = LegalizeOps()(NLLLoss)
@@ -1881,6 +1554,197 @@ def test_nll_loss_symbolic():
     # fmt: on
 
     mod = LegalizeOps()(NLLLoss)
+    tvm.ir.assert_structural_equal(mod, Expected)
+
+
+def test_nll_loss_backward_pred():
+    # fmt: off
+    @tvm.script.ir_module
+    class NLLLossBackwardPred:
+        @R.function
+        def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((2, 3, 4, 5), "float32"), targets: R.Tensor((2, 4, 5), "int64"), weights: R.Tensor((4,), "float32")) -> R.Tensor((2, 3, 4, 5), "float32"):
+            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
+            return gv
+
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((2, 3, 4, 5), dtype="float32"), targets: R.Tensor((2, 4, 5), dtype="int64"), weights: R.Tensor((4,), dtype="float32")) -> R.Tensor((2, 3, 4, 5), dtype="float32"):
+            # block 0
+            gv = R.call_tir(nll_loss_backward_pred_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
+            return gv
+
+        @T.prim_func
+        def nll_loss_backward_pred_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
+            # function attr dict
+            T.func_attr({"tir.noalias": True})
+            # body
+            # with T.block("root")
+            all_weights = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            T_broadcast_to = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            all_weights_red = T.alloc_buffer([], dtype="float32")
+            T_divide = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            for i0, i1, i2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("all_weights"):
+                    v_i0, v_i1, v_i2 = T.axis.remap("SSS", [i0, i1, i2])
+                    T.reads(rxplaceholder_3[rxplaceholder_2[v_i0, v_i1, v_i2]], rxplaceholder_2[v_i0, v_i1, v_i2])
+                    T.writes(all_weights[v_i0, v_i1, v_i2])
+                    all_weights[v_i0, v_i1, v_i2] = rxplaceholder_3[rxplaceholder_2[v_i0, v_i1, v_i2]]
+            for ax0, ax1, ax2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("T_broadcast_to"):
+                    v_ax0, v_ax1, v_ax2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                    T.reads(rxplaceholder[()])
+                    T.writes(T_broadcast_to[v_ax0, v_ax1, v_ax2])
+                    T_broadcast_to[v_ax0, v_ax1, v_ax2] = rxplaceholder[()]
+            for k0, k1, k2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("all_weights_red"):
+                    v_k0, v_k1, v_k2 = T.axis.remap("RRR", [k0, k1, k2])
+                    T.reads(all_weights[v_k0, v_k1, v_k2])
+                    T.writes(all_weights_red[()])
+                    with T.init():
+                        all_weights_red[()] = T.float32(0)
+                    all_weights_red[()] = all_weights_red[()] + all_weights[v_k0, v_k1, v_k2]
+            for ax0, ax1, ax2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("T_divide"):
+                    v_ax0, v_ax1, v_ax2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                    T.reads(T_broadcast_to[v_ax0, v_ax1, v_ax2], all_weights_red[()])
+                    T.writes(T_divide[v_ax0, v_ax1, v_ax2])
+                    T_divide[v_ax0, v_ax1, v_ax2] = T_broadcast_to[v_ax0, v_ax1, v_ax2] / all_weights_red[()]
+            for i0, i1, i2, i3 in T.grid(T.int64(2), T.int64(3), T.int64(4), T.int64(5)):
+                with T.block("pred_grad"):
+                    v_i0, v_i1, v_i2, v_i3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+                    T.reads(rxplaceholder_2[v_i0, v_i2, v_i3], all_weights[v_i0, v_i2, v_i3], T_divide[v_i0, v_i2, v_i3])
+                    T.writes(pred_grad[v_i0, v_i1, v_i2, v_i3])
+                    pred_grad[v_i0, v_i1, v_i2, v_i3] = T.Select(v_i1 == rxplaceholder_2[v_i0, v_i2, v_i3], all_weights[v_i0, v_i2, v_i3] * T.float32(-1) * T_divide[v_i0, v_i2, v_i3], T.float32(0))
+    # fmt: on
+
+    mod = LegalizeOps()(NLLLossBackwardPred)
+    tvm.ir.assert_structural_equal(mod, Expected)
+
+
+def test_nll_loss_backward_pred_no_weight():
+    # fmt: off
+    @tvm.script.ir_module
+    class NLLLossBackwardPred:
+        @R.function
+        def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((2, 3, 4, 5), "float32"), targets: R.Tensor((2, 4, 5), "int64")) -> R.Tensor((2, 3, 4, 5), "float32"):
+            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, reduction="mean", ignore_index=-1)
+            return gv
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((2, 3, 4, 5), dtype="float32"), targets: R.Tensor((2, 4, 5), dtype="int64")) -> R.Tensor((2, 3, 4, 5), dtype="float32"):
+            # block 0
+            gv = R.call_tir(nll_loss_backward_pred_te_no_weight, (output_grad, predictions, targets), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
+            return gv
+
+        @T.prim_func
+        def nll_loss_backward_pred_te_no_weight(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
+            # function attr dict
+            T.func_attr({"tir.noalias": True})
+            # body
+            # with T.block("root")
+            T_full = T.alloc_buffer([T.int64(3)], dtype="float32")
+            all_weights = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            T_broadcast_to = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            all_weights_red = T.alloc_buffer([], dtype="float32")
+            T_divide = T.alloc_buffer([T.int64(2), T.int64(4), T.int64(5)], dtype="float32")
+            for ax0 in T.serial(T.int64(3)):
+                with T.block("T_full"):
+                    v_ax0 = T.axis.spatial(T.int64(3), ax0)
+                    T.reads()
+                    T.writes(T_full[v_ax0])
+                    T_full[v_ax0] = T.float32(1)
+            for i0, i1, i2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("all_weights"):
+                    v_i0, v_i1, v_i2 = T.axis.remap("SSS", [i0, i1, i2])
+                    T.reads(T_full[rxplaceholder_2[v_i0, v_i1, v_i2]], rxplaceholder_2[v_i0, v_i1, v_i2])
+                    T.writes(all_weights[v_i0, v_i1, v_i2])
+                    all_weights[v_i0, v_i1, v_i2] = T_full[rxplaceholder_2[v_i0, v_i1, v_i2]]
+            for ax0, ax1, ax2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("T_broadcast_to"):
+                    v_ax0, v_ax1, v_ax2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                    T.reads(rxplaceholder[()])
+                    T.writes(T_broadcast_to[v_ax0, v_ax1, v_ax2])
+                    T_broadcast_to[v_ax0, v_ax1, v_ax2] = rxplaceholder[()]
+            for k0, k1, k2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("all_weights_red"):
+                    v_k0, v_k1, v_k2 = T.axis.remap("RRR", [k0, k1, k2])
+                    T.reads(all_weights[v_k0, v_k1, v_k2])
+                    T.writes(all_weights_red[()])
+                    with T.init():
+                        all_weights_red[()] = T.float32(0)
+                    all_weights_red[()] = all_weights_red[()] + all_weights[v_k0, v_k1, v_k2]
+            for ax0, ax1, ax2 in T.grid(T.int64(2), T.int64(4), T.int64(5)):
+                with T.block("T_divide"):
+                    v_ax0, v_ax1, v_ax2 = T.axis.remap("SSS", [ax0, ax1, ax2])
+                    T.reads(T_broadcast_to[v_ax0, v_ax1, v_ax2], all_weights_red[()])
+                    T.writes(T_divide[v_ax0, v_ax1, v_ax2])
+                    T_divide[v_ax0, v_ax1, v_ax2] = T_broadcast_to[v_ax0, v_ax1, v_ax2] / all_weights_red[()]
+            for i0, i1, i2, i3 in T.grid(T.int64(2), T.int64(3), T.int64(4), T.int64(5)):
+                with T.block("pred_grad"):
+                    v_i0, v_i1, v_i2, v_i3 = T.axis.remap("SSSS", [i0, i1, i2, i3])
+                    T.reads(rxplaceholder_2[v_i0, v_i2, v_i3], all_weights[v_i0, v_i2, v_i3], T_divide[v_i0, v_i2, v_i3])
+                    T.writes(pred_grad[v_i0, v_i1, v_i2, v_i3])
+                    pred_grad[v_i0, v_i1, v_i2, v_i3] = T.Select(v_i1 == rxplaceholder_2[v_i0, v_i2, v_i3], all_weights[v_i0, v_i2, v_i3] * T.float32(-1) * T_divide[v_i0, v_i2, v_i3], T.float32(0))
+    # fmt: on
+
+    mod = LegalizeOps()(NLLLossBackwardPred)
+    tvm.ir.assert_structural_equal(mod, Expected)
+
+
+def test_nll_loss_backward_pred_no_batch():
+    # fmt: off
+    @tvm.script.ir_module
+    class NLLLossBackwardPred:
+        @R.function
+        def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((4,), "float32"), targets: R.Tensor((), "int64"), weights: R.Tensor((4,), "float32")) -> R.Tensor((4,), "float32"):
+            gv: R.Tensor((4,), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
+            return gv
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((4,), dtype="float32"), targets: R.Tensor((), dtype="int64"), weights: R.Tensor((4,), dtype="float32")) -> R.Tensor((4,), dtype="float32"):
+            # block 0
+            gv = R.call_tir(nll_loss_backward_pred_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((4,), dtype="float32"))
+            return gv
+
+        @T.prim_func
+        def nll_loss_backward_pred_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[T.int64(4), "float32"], rxplaceholder_2: T.Buffer[(), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[T.int64(4), "float32"]):
+            # function attr dict
+            T.func_attr({"tir.noalias": True})
+            # body
+            # with T.block("root")
+            all_weights = T.alloc_buffer([], dtype="float32")
+            T_broadcast_to = T.alloc_buffer([], dtype="float32")
+            T_divide = T.alloc_buffer([], dtype="float32")
+            with T.block("all_weights"):
+                vi = T.axis.spatial(T.int64(1), T.int64(0))
+                T.reads(rxplaceholder_3[rxplaceholder_2[()]], rxplaceholder_2[()])
+                T.writes(all_weights[()])
+                all_weights[()] = rxplaceholder_3[rxplaceholder_2[()]]
+            with T.block("T_broadcast_to"):
+                vi = T.axis.spatial(1, T.int64(0))
+                T.reads(rxplaceholder[()])
+                T.writes(T_broadcast_to[()])
+                T_broadcast_to[()] = rxplaceholder[()]
+            with T.block("T_divide"):
+                vi = T.axis.spatial(1, T.int64(0))
+                T.reads(T_broadcast_to[()], all_weights[()])
+                T.writes(T_divide[()])
+                T_divide[()] = T_broadcast_to[()] / all_weights[()]
+            for i in T.serial(T.int64(4)):
+                with T.block("pred_grad"):
+                    v_i = T.axis.spatial(T.int64(4), i)
+                    T.reads(rxplaceholder_2[()], all_weights[()], T_divide[()])
+                    T.writes(pred_grad[v_i])
+                    pred_grad[v_i] = T.Select(v_i == rxplaceholder_2[()], all_weights[()] * T.float32(-1) * T_divide[()], T.float32(0))
+    # fmt: on
+
+    mod = LegalizeOps()(NLLLossBackwardPred)
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
