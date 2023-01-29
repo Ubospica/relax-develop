@@ -606,6 +606,7 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
     # we add support for that
     def topi_sum_extend(x):
         return x if x.ndim == 0 else topi.sum(x)
+
     def nll_loss_backward_pred_te(
         output_grad, predictions: te.Tensor, targets, weights, reduction, ignore_index
     ):
@@ -613,9 +614,8 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
         if ignore_index >= 0:
             weights = te.compute(
                 weights.shape,
-                lambda i: tir.Select(
-                    i == ignore_index, tir.const(0, weights.dtype), weights(i)
-                ), "weights_new"
+                lambda i: tir.Select(i == ignore_index, tir.const(0, weights.dtype), weights(i)),
+                "weights_new",
             )
 
         all_weights = te.compute(targets.shape, lambda *i: weights(targets(*i)), "all_weights")
@@ -634,7 +634,8 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
                 predictions.shape,
                 lambda i: tir.Select(
                     i == targets(), -all_weights() * output_grad(), tir.const(0, predictions.dtype)
-                ), "pred_grad"
+                ),
+                "pred_grad",
             )
 
         return te.compute(
@@ -643,7 +644,8 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
                 i[1] == targets(*i[:1], *i[2:]),
                 -all_weights(*i[:1], *i[2:]) * output_grad(*i[:1], *i[2:]),
                 tir.const(0, predictions.dtype),
-            ), "pred_grad"
+            ),
+            "pred_grad",
         )
 
     def nll_loss_backward_pred_te_no_weight(
@@ -654,7 +656,9 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
             predictions.dtype,
             1.0,
         )
-        return nll_loss_backward_pred_te(output_grad, predictions, targets, weight, reduction, ignore_index)
+        return nll_loss_backward_pred_te(
+            output_grad, predictions, targets, weight, reduction, ignore_index
+        )
 
     if len(call.args) == 3:
         return bb.call_te(

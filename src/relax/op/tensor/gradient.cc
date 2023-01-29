@@ -22,8 +22,8 @@
 namespace tvm {
 namespace relax {
 
-Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets, Optional<Expr> weights, String reduction,
-              int ignore_index) {
+Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets,
+                            Optional<Expr> weights, String reduction, int ignore_index) {
   ObjectPtr<NLLLossAttrs> attrs = make_object<NLLLossAttrs>();
 
   attrs->reduction = reduction;
@@ -31,10 +31,13 @@ Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets, Op
 
   static const Op& op = Op::Get("relax.nll_loss_backward_pred");
   if (weights.defined()) {
-    return Call(op, {std::move(output_grad), std::move(predictions), std::move(targets), std::move(weights.value())},
+    return Call(op,
+                {std::move(output_grad), std::move(predictions), std::move(targets),
+                 std::move(weights.value())},
                 Attrs{attrs}, {});
   } else {
-    return Call(op, {std::move(output_grad), std::move(predictions), std::move(targets)}, Attrs{attrs}, {});
+    return Call(op, {std::move(output_grad), std::move(predictions), std::move(targets)},
+                Attrs{attrs}, {});
   }
 }
 

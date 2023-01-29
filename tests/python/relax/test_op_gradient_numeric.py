@@ -99,7 +99,12 @@ def relax_check_gradients(
 
     def forward(*inputs):
         inputs_iter = iter(inputs)
-        inputs_tvm = [_numpy_to_tvm(next(inputs_iter)) if i not in ignore_grads else _numpy_to_tvm(inputs_numpy[i]) for i in range(len(inputs_numpy))]
+        inputs_tvm = [
+            _numpy_to_tvm(next(inputs_iter))
+            if i not in ignore_grads
+            else _numpy_to_tvm(inputs_numpy[i])
+            for i in range(len(inputs_numpy))
+        ]
         result = vm_0[func_name](*inputs_tvm)
         result_numpy = _tvm_to_numpy(result)
         if isinstance(result_numpy, list):
@@ -359,22 +364,69 @@ def test_nll_loss(target, dev):
     data2_numpy = np.random.randint(0, 3, (2, 4)).astype(np.int64)
     data3_numpy = np.random.randint(0, 16, (3,)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="mean",
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='sum'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="sum",
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (2, 4), ignore_grads=[1,2], reduction='none'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (2, 4),
+        ignore_grads=[1, 2],
+        reduction="none",
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean', ignore_index=1
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="mean",
+        ignore_index=1,
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean', ignore_index=1
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="mean",
+        ignore_index=1,
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy], target, dev, (), ignore_grads=[1,], reduction='mean', ignore_index=1
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[
+            1,
+        ],
+        reduction="mean",
+        ignore_index=1,
     )
 
 
@@ -384,13 +436,34 @@ def test_nll_loss_no_batch(target, dev):
     data2_numpy = np.random.randint(0, 3, ()).astype(np.int64)
     data3_numpy = np.random.randint(1, 16, (3,)).astype(np.float32)
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='mean'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="mean",
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='sum'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="sum",
     )
     relax_check_gradients(
-        relax.op.nn.nll_loss, "relax.nn.nll_loss", [data1_numpy, data2_numpy, data3_numpy], target, dev, (), ignore_grads=[1,2], reduction='none'
+        relax.op.nn.nll_loss,
+        "relax.nn.nll_loss",
+        [data1_numpy, data2_numpy, data3_numpy],
+        target,
+        dev,
+        (),
+        ignore_grads=[1, 2],
+        reduction="none",
     )
 
 

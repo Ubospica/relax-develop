@@ -44,17 +44,9 @@ def test_nll_loss_backward_pred_infer_struct_info():
     y = relax.Var("y", R.Tensor((3, 10, 10), "int64"))
     w = relax.Var("w", R.Tensor((5,), "float32"))
 
-    _check_inference(
-        bb,
-        relax.op.nll_loss_backward_pred(g, x, y),
-        x.struct_info
-    )
+    _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y), x.struct_info)
 
-    _check_inference(
-        bb,
-        relax.op.nll_loss_backward_pred(g, x, y, w),
-        x.struct_info
-    )
+    _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y, w), x.struct_info)
 
 
 if __name__ == "__main__":
