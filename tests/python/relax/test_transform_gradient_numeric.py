@@ -81,6 +81,7 @@ def test_mlp_blockbuilder():
     layers, in_size, out_size, hidden_size, batch_size = 3, 5, 5, 5, 4
 
     input_list = [relax.Var("x", R.Tensor((batch_size, in_size), "float32"))]
+    label_list = [relax.Var("y", R.Tensor((batch_size,), "int64"))]
     w_list = (
         [relax.Var("w_0", R.Tensor((in_size, hidden_size), "float32"))]
         + [
@@ -92,8 +93,7 @@ def test_mlp_blockbuilder():
     b_list = [
         relax.Var("b_" + str(i), R.Tensor((hidden_size,), "float32")) for i in range(layers - 1)
     ] + [relax.Var("b_" + str(layers - 1), R.Tensor((out_size,), "float32"))]
-    label_list = [relax.Var("y", R.Tensor((batch_size,), "int64"))]
-    args_list = input_list + w_list + b_list + label_list
+    args_list = input_list + label_list + w_list + b_list
 
     bb = relax.BlockBuilder()
     with bb.function("MLP", args_list):
@@ -109,30 +109,30 @@ def test_mlp_blockbuilder():
         bb.emit_func_output(gv0)
 
     Before = bb.get()
-    After = relax.transform.Gradient(Before.get_global_var("MLP"), args_list)(Before)
+    After = relax.transform.Gradient(Before.get_global_var("MLP"), w_list + b_list)(Before)
     # Check numerical gradients equal
     args = []
-    for arg in After["MLP_adjoint"].params[:-1]:
+    for arg in After["MLP_adjoint"].params:
         shape = [int(l) for l in arg.struct_info.shape]
-        args.append(rand("float32", *shape))
-    label = np.random.rand(batch_size, out_size).astype(np.float32)
-    label /= label.sum(axis=1, keepdims=True)
-    args.append(tvm.nd.array(label))
+        if arg.struct_info.dtype == "int64":
+            args.append(tvm.nd.array(np.random.randint(0, out_size, size=shape).astype(np.int64)))
+        else:  # float32
+            args.append(rand("float32", *shape))
 
     vm_before = _legalize_and_build(Before)
     vm_after = _legalize_and_build(After)
     _, grad = vm_after["MLP_adjoint"](*args)
 
     def func(*inputs):
-        loss = vm_before["MLP"](*[tvm.nd.array(i) for i in inputs])
+        loss = vm_before["MLP"](args[0], args[1], *[tvm.nd.array(i) for i in inputs])
         return loss.numpy()
 
-    check_numerical_grads(func, [i.numpy() for i in args], [i.numpy() for i in grad])
+    check_numerical_grads(func, [i.numpy() for i in args[2:]], [i.numpy() for i in grad])
 
 
 def test_complex():
     cst = relax.const(np.ones((6,)), dtype="float32")
-    cst1 = relax.const(np.array([3]), dtype="int64")
+    cst1 = relax.const(np.array(3), dtype="int64")
 
     @tvm.script.ir_module
     class Before:

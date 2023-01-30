@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Operators serving for _op_gradient.py"""
+"""Operators to implement the gradients. Used in `op_gradient.py`."""
 from typing import List, Optional, Tuple, Union
 
 from . import _ffi_api

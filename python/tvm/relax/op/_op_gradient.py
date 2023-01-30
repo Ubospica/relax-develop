@@ -479,3 +479,64 @@ def nll_loss_grad(
 
     weight_grad = zeros(orig_call.args[2].struct_info.shape, orig_call.args[2].struct_info.dtype)
     return [pred_grad, tgt_grad, weight_grad]
+
+
+@register_gradient("relax.nn.conv2d")
+def conv2d_grad(
+    orig_var: Var,
+    orig_call: Call,
+    output_grad: Var,
+    ctx: BlockBuilder,
+):
+    """Gradient of nll_loss.
+
+    Forward Form:
+        `z = nll_loss(predictions, targets, weights, reduction, ignore_index)`
+
+        Suppose that `out = nll_loss(predictions, targets, weights, "none", ignore_index)`, and
+        `z = reduction(out)` where reduction is in `["none", "mean", "sum"]`.
+
+    Backward:
+        First find the gradient w.r.t. `out`. Assume it is `out_grad`.
+
+        Gererally, the gradient w.r.t. predictions is
+
+        `predictions_grad[n, c, i_1, ..., i_k] = -o * w if c == t else 0`, where
+        - `o = out_grad[n, i_1, ..., i_k]`,
+        - `w = weights[n, i_1, ..., i_k]`,
+        - `t = targets[n, i_1, ..., i_k]`.
+
+        Additional checks are added if `ignore_index >= 0`, `weights=None`, or the predictions
+        provided do not have batch.
+
+        The gradient w.r.t. targets and weights are not available. Now `nll_loss_grad` return zeros
+        for them.
+    """
+    # bb.call_te(
+    #     topi.nn.conv,
+    #     inp=call.args[0],
+    #     filt=call.args[1],
+    #     stride=call.attrs.strides,
+    #     padding=call.attrs.padding,
+    #     dilation=call.attrs.dilation,
+    #     groups=call.attrs.groups,
+    #     data_layout=call.attrs.data_layout,
+    #     kernel_layout=call.attrs.kernel_layout,
+    #     out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
+    #     primfunc_name_hint="conv2d",
+    # )
+    # data_grad = conv2d_backward_data(  # type: ignore
+    #     output_grad,
+    #     orig_call.args[0],
+    #     orig_call.args[1],
+
+    #     reduction=orig_call.attrs.reduction,
+    #     ignore_index=orig_call.attrs.ignore_index,
+    # )
+    # weight_grad = conv2d_backward_weight()
+    # tgt_grad = zeros(orig_call.args[1].struct_info.shape, orig_call.args[1].struct_info.dtype)
+    # if len(orig_call.args) == 2:
+    #     return [pred_grad, tgt_grad]
+
+    # weight_grad = zeros(orig_call.args[2].struct_info.shape, orig_call.args[2].struct_info.dtype)
+    # return [pred_grad, tgt_grad, weight_grad]
