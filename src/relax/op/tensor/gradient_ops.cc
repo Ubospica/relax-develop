@@ -22,14 +22,14 @@
 namespace tvm {
 namespace relax {
 
-Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets,
+Expr nll_loss_backward(Expr output_grad, Expr predictions, Expr targets,
                             Optional<Expr> weights, String reduction, int ignore_index) {
   ObjectPtr<NLLLossAttrs> attrs = make_object<NLLLossAttrs>();
 
   attrs->reduction = reduction;
   attrs->ignore_index = ignore_index;
 
-  static const Op& op = Op::Get("relax.nll_loss_backward_pred");
+  static const Op& op = Op::Get("relax.nll_loss_backward");
   if (weights.defined()) {
     return Call(op,
                 {std::move(output_grad), std::move(predictions), std::move(targets),
@@ -41,13 +41,13 @@ Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets,
   }
 }
 
-TVM_REGISTER_GLOBAL("relax.op.nll_loss_backward_pred").set_body_typed(nll_loss_backward_pred);
+TVM_REGISTER_GLOBAL("relax.op.nll_loss_backward").set_body_typed(nll_loss_backward);
 
 StructInfo InferStructInfoNLLLossBackwardPred(const Call& call, const BlockBuilder& ctx) {
   return GetStructInfo(call->args[1]);
 }
 
-TVM_REGISTER_OP("relax.nll_loss_backward_pred")
+TVM_REGISTER_OP("relax.nll_loss_backward")
     .set_attrs_type<NLLLossAttrs>()
     .set_num_inputs(4)
     .add_argument("output_grad", "Tensor", "The output gradient.")

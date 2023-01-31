@@ -912,7 +912,7 @@ def test_mlp_script():
                 logits: R.Tensor((3, 5), "float32") = R.nn.log_softmax(out, axis=-1)
                 loss: R.Tensor((), "float32") = R.nn.nll_loss(logits, label, reduction="mean", ignore_index=-100)
                 loss_adjoint: R.Tensor((), "float32") = R.ones((), "float32")
-                logits_adjoint: R.Tensor((3, 5), "float32") = R.nll_loss_backward_pred(loss_adjoint, logits, label, reduction="mean", ignore_index=-100)
+                logits_adjoint: R.Tensor((3, 5), "float32") = R.nll_loss_backward(loss_adjoint, logits, label, reduction="mean", ignore_index=-100)
                 lv: R.Tensor((3, 1), "float32") = R.sum(logits_adjoint, axis=[-1], keepdims=True)
                 lv1: R.Tensor((3, 5), "float32") = R.exp(logits)
                 lv2: R.Tensor((3, 5), "float32") = R.multiply(lv, lv1)

@@ -26,7 +26,7 @@ def test_op_correctness():
     x = relax.Var("x", R.Tensor((3, 5, 10, 10), "float32"))
     y = relax.Var("y", R.Tensor((3, 10, 10), "int64"))
     w = relax.Var("w", R.Tensor((5,), "float32"))
-    assert relax.op.nll_loss_backward_pred(g, x, y, w).op == Op.get("relax.nll_loss_backward_pred")
+    assert relax.op.nll_loss_backward(g, x, y, w).op == Op.get("relax.nll_loss_backward")
 
     g = relax.Var("g", R.Tensor((3, 6, 8, 8), "float32"))
     x = relax.Var("x", R.Tensor((3, 5, 10, 10), "float32"))
@@ -40,7 +40,7 @@ def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_sinfo: r
     tvm.ir.assert_structural_equal(ret.struct_info, expected_sinfo)
 
 
-def test_nll_loss_backward_pred_infer_struct_info():
+def test_nll_loss_backward_infer_struct_info():
     bb = relax.BlockBuilder()
 
     g = relax.Var("g", R.Tensor((3, 10, 10)))
@@ -48,8 +48,8 @@ def test_nll_loss_backward_pred_infer_struct_info():
     y = relax.Var("y", R.Tensor((3, 10, 10), "int64"))
     w = relax.Var("w", R.Tensor((5,), "float32"))
 
-    _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y), x.struct_info)
-    _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y, w), x.struct_info)
+    _check_inference(bb, relax.op.nll_loss_backward(g, x, y), x.struct_info)
+    _check_inference(bb, relax.op.nll_loss_backward(g, x, y, w), x.struct_info)
 
 
 def test_conv2d_backward_infer_struct_info():

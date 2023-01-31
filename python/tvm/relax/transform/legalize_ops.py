@@ -601,13 +601,13 @@ def _image_resize2d(bb: BlockBuilder, call: Call) -> Expr:
 ##################### Gradient Operators #####################
 
 
-def _nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
+def _nll_loss_backward(bb: BlockBuilder, call: Call) -> Expr:
     # topi.sum don't support zero-dim x
     # we add support for that
     def topi_sum_extend(x):
         return x if x.ndim == 0 else topi.sum(x)
 
-    def nll_loss_backward_pred_te(
+    def nll_loss_backward_te(
         output_grad, predictions: te.Tensor, targets, weights, reduction, ignore_index
     ):
         # handle ignore_index
@@ -648,7 +648,7 @@ def _nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
             "pred_grad",
         )
 
-    def nll_loss_backward_pred_te_no_weight(
+    def nll_loss_backward_te_no_weight(
         output_grad, predictions, targets, reduction, ignore_index
     ):
         weight = topi.full(
@@ -656,20 +656,20 @@ def _nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
             predictions.dtype,
             1.0,
         )
-        return nll_loss_backward_pred_te(
+        return nll_loss_backward_te(
             output_grad, predictions, targets, weight, reduction, ignore_index
         )
 
     if len(call.args) == 3:
         return bb.call_te(
-            nll_loss_backward_pred_te_no_weight,
+            nll_loss_backward_te_no_weight,
             *call.args,
             reduction=call.attrs.reduction,
             ignore_index=call.attrs.ignore_index,
         )
 
     return bb.call_te(
-        nll_loss_backward_pred_te,
+        nll_loss_backward_te,
         *call.args,
         reduction=call.attrs.reduction,
         ignore_index=call.attrs.ignore_index,
@@ -803,7 +803,7 @@ DEFAULT_OP_LEGALIZE_MAP: Dict[str, LegalizeFunc] = {
     # Image
     "relax.image.resize2d": _image_resize2d,
     # Gradient
-    "relax.nll_loss_backward_pred": _nll_loss_backward_pred,
+    "relax.nll_loss_backward": _nll_loss_backward,
     "relax.conv2d_backward_data": _conv2d_backward_data,
     "relax.conv2d_backward_weight": _conv2d_backward_weight,
     # Todo(relax-team): Introduce cumsum for GPT-2

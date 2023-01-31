@@ -23,7 +23,7 @@ from . import _ffi_api
 from ..expr import Expr
 
 
-def nll_loss_backward_pred(
+def nll_loss_backward(
     output_grad: Expr,
     predictions: Expr,
     targets: Expr,
@@ -44,7 +44,7 @@ def nll_loss_backward_pred(
     result : relax.Expr
       The gradient w.r.t. predictions.
     """
-    return _ffi_api.nll_loss_backward_pred(  # type: ignore
+    return _ffi_api.nll_loss_backward(  # type: ignore
       output_grad, predictions, targets, weights, reduction, ignore_index
     )
 

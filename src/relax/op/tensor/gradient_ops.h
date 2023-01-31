@@ -33,7 +33,7 @@ namespace relax {
 
 /*! \brief Backward operator of relax.nll_loss. All parameters except output_grad is the same as
     relax.nll_loss. Returns the gradient w.r.t. predictions. */
-Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets,
+Expr nll_loss_backward(Expr output_grad, Expr predictions, Expr targets,
                             Optional<Expr> weights, String reduction, int ignore_index);
 
 /*! \brief  */

@@ -42,7 +42,7 @@ from .manipulate import (
     split,
     squeeze,
 )
-from .gradient_ops import conv2d_backward_data, conv2d_backward_weight, nll_loss_backward_pred
+from .gradient_ops import conv2d_backward_data, conv2d_backward_weight, nll_loss_backward
 
 
 def _get_shape(expr: Expr) -> ShapeExpr:
@@ -455,7 +455,7 @@ def nll_loss_grad(
         The gradient w.r.t. targets and weights are not available. Now `nll_loss_grad` return zeros
         for them.
     """
-    pred_grad = nll_loss_backward_pred(  # type: ignore
+    pred_grad = nll_loss_backward(  # type: ignore
         output_grad,
         *orig_call.args,
         reduction=orig_call.attrs.reduction,
@@ -529,3 +529,47 @@ def conv2d_grad(
     )
 
     return [data_grad, weight_grad]
+# def max_pool2d(
+#     data: Expr,
+#     pool_size: Union[int, Tuple[int, int]] = (1, 1),
+#     strides: Union[int, Tuple[int, int]] = (1, 1),
+#     padding: Union[int, Tuple[int, ...]] = (0, 0),
+#     dilation: Union[int, Tuple[int, int]] = (1, 1),
+#     ceil_mode: bool = False,
+#     layout: str = "NCHW",
+#     out_layout: Optional[str] = None,
+# ) -> Expr:
+
+    # return bb.call_te(
+    #     topi.nn.pool2d,
+    #     call.args[0],
+    #     kernel=call.attrs.pool_size,
+    #     stride=call.attrs.strides,
+    #     dilation=call.attrs.dilation,
+    #     padding=call.attrs.padding,
+    #     pool_type="max",
+    #     ceil_mode=call.attrs.ceil_mode,
+    #     layout=call.attrs.layout,
+    #     primfunc_name_hint="max_pool2d",
+    # )
+# @register_gradient("relax.nn.conv2d")
+# def max_pool2d_grad(
+#     orig_var: Var,
+#     orig_call: Call,
+#     output_grad: Var,
+#     ctx: BlockBuilder,
+# ):
+#     """Gradient of nll_loss.
+#     """
+#     return max_pool2d_backward(  # type: ignore
+#         output_grad,
+#         orig_call.args[0],
+#         orig_call.attrs.pool_size,
+#         orig_call.attrs.padding,
+#         orig_call.attrs.dilation,
+#         orig_call.attrs.groups,
+#         orig_call.attrs.data_layout,
+#         orig_call.attrs.kernel_layout,
+#         orig_call.attrs.out_layout,
+#         orig_call.attrs.out_dtype,
+#     )

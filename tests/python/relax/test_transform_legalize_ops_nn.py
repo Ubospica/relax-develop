@@ -1557,13 +1557,13 @@ def test_nll_loss_symbolic():
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
-def test_nll_loss_backward_pred():
+def test_nll_loss_backward():
     # fmt: off
     @tvm.script.ir_module
     class NLLLossBackwardPred:
         @R.function
         def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((2, 3, 4, 5), "float32"), targets: R.Tensor((2, 4, 5), "int64"), weights: R.Tensor((4,), "float32")) -> R.Tensor((2, 3, 4, 5), "float32"):
-            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
+            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
             return gv
 
 
@@ -1572,11 +1572,11 @@ def test_nll_loss_backward_pred():
         @R.function
         def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((2, 3, 4, 5), dtype="float32"), targets: R.Tensor((2, 4, 5), dtype="int64"), weights: R.Tensor((4,), dtype="float32")) -> R.Tensor((2, 3, 4, 5), dtype="float32"):
             # block 0
-            gv = R.call_tir(nll_loss_backward_pred_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
+            gv = R.call_tir(nll_loss_backward_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
             return gv
 
         @T.prim_func
-        def nll_loss_backward_pred_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
+        def nll_loss_backward_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
             # function attr dict
             T.func_attr({"tir.noalias": True})
             # body
@@ -1623,13 +1623,13 @@ def test_nll_loss_backward_pred():
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
-def test_nll_loss_backward_pred_no_weight():
+def test_nll_loss_backward_no_weight():
     # fmt: off
     @tvm.script.ir_module
     class NLLLossBackwardPred:
         @R.function
         def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((2, 3, 4, 5), "float32"), targets: R.Tensor((2, 4, 5), "int64")) -> R.Tensor((2, 3, 4, 5), "float32"):
-            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, reduction="mean", ignore_index=-1)
+            gv: R.Tensor((2, 3, 4, 5), "float32") = R.nll_loss_backward(output_grad, predictions, targets, reduction="mean", ignore_index=-1)
             return gv
 
     @tvm.script.ir_module
@@ -1637,11 +1637,11 @@ def test_nll_loss_backward_pred_no_weight():
         @R.function
         def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((2, 3, 4, 5), dtype="float32"), targets: R.Tensor((2, 4, 5), dtype="int64")) -> R.Tensor((2, 3, 4, 5), dtype="float32"):
             # block 0
-            gv = R.call_tir(nll_loss_backward_pred_te_no_weight, (output_grad, predictions, targets), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
+            gv = R.call_tir(nll_loss_backward_te_no_weight, (output_grad, predictions, targets), out_sinfo=R.Tensor((2, 3, 4, 5), dtype="float32"))
             return gv
 
         @T.prim_func
-        def nll_loss_backward_pred_te_no_weight(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
+        def nll_loss_backward_te_no_weight(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"], rxplaceholder_2: T.Buffer[(T.int64(2), T.int64(4), T.int64(5)), "int64"], pred_grad: T.Buffer[(T.int64(2), T.int64(3), T.int64(4), T.int64(5)), "float32"]):
             # function attr dict
             T.func_attr({"tir.noalias": True})
             # body
@@ -1695,13 +1695,13 @@ def test_nll_loss_backward_pred_no_weight():
     tvm.ir.assert_structural_equal(mod, Expected)
 
 
-def test_nll_loss_backward_pred_no_batch():
+def test_nll_loss_backward_no_batch():
     # fmt: off
     @tvm.script.ir_module
     class NLLLossBackwardPred:
         @R.function
         def main(output_grad: R.Tensor((), "float32"), predictions: R.Tensor((4,), "float32"), targets: R.Tensor((), "int64"), weights: R.Tensor((4,), "float32")) -> R.Tensor((4,), "float32"):
-            gv: R.Tensor((4,), "float32") = R.nll_loss_backward_pred(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
+            gv: R.Tensor((4,), "float32") = R.nll_loss_backward(output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1)
             return gv
 
     @tvm.script.ir_module
@@ -1709,11 +1709,11 @@ def test_nll_loss_backward_pred_no_batch():
         @R.function
         def main(output_grad: R.Tensor((), dtype="float32"), predictions: R.Tensor((4,), dtype="float32"), targets: R.Tensor((), dtype="int64"), weights: R.Tensor((4,), dtype="float32")) -> R.Tensor((4,), dtype="float32"):
             # block 0
-            gv = R.call_tir(nll_loss_backward_pred_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((4,), dtype="float32"))
+            gv = R.call_tir(nll_loss_backward_te, (output_grad, predictions, targets, weights), out_sinfo=R.Tensor((4,), dtype="float32"))
             return gv
 
         @T.prim_func
-        def nll_loss_backward_pred_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[T.int64(4), "float32"], rxplaceholder_2: T.Buffer[(), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[T.int64(4), "float32"]):
+        def nll_loss_backward_te(rxplaceholder: T.Buffer[(), "float32"], rxplaceholder_1: T.Buffer[T.int64(4), "float32"], rxplaceholder_2: T.Buffer[(), "int64"], rxplaceholder_3: T.Buffer[T.int64(4), "float32"], pred_grad: T.Buffer[T.int64(4), "float32"]):
             # function attr dict
             T.func_attr({"tir.noalias": True})
             # body

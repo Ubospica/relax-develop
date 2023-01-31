@@ -34,7 +34,7 @@ def _check(
         tvm.ir.assert_structural_equal(parsed, expect)
 
 
-def test_nll_loss_backward_pred():
+def test_nll_loss_backward():
     @R.function
     def foo(
         output_grad: R.Tensor((3, 10, 10), dtype="float32"),
@@ -42,7 +42,7 @@ def test_nll_loss_backward_pred():
         targets: R.Tensor((3, 10, 10), dtype="int64"),
         weights: R.Tensor((5,), dtype="float32"),
     ) -> R.Tensor((3, 5, 10, 10), dtype="float32"):
-        gv: R.Tensor((3, 5, 10, 10), dtype="float32") = R.nll_loss_backward_pred(
+        gv: R.Tensor((3, 5, 10, 10), dtype="float32") = R.nll_loss_backward(
             output_grad, predictions, targets, weights, "mean", -1
         )
         return gv
@@ -54,7 +54,7 @@ def test_nll_loss_backward_pred():
     bb = relax.BlockBuilder()
     with bb.function("foo", [output_grad, predictions, targets, weights]):
         gv = bb.emit(
-            relax.op.nll_loss_backward_pred(
+            relax.op.nll_loss_backward(
                 output_grad, predictions, targets, weights, reduction="mean", ignore_index=-1
             )
         )
@@ -63,14 +63,14 @@ def test_nll_loss_backward_pred():
     _check(foo, bb.get()["foo"])
 
 
-def test_nll_loss_backward_pred_no_weights():
+def test_nll_loss_backward_no_weights():
     @R.function
     def foo(
         output_grad: R.Tensor((3, 10, 10), dtype="float32"),
         predictions: R.Tensor((3, 5, 10, 10), dtype="float32"),
         targets: R.Tensor((3, 10, 10), dtype="int64"),
     ) -> R.Tensor((3, 5, 10, 10), dtype="float32"):
-        gv: R.Tensor((3, 5, 10, 10), dtype="float32") = R.nll_loss_backward_pred(
+        gv: R.Tensor((3, 5, 10, 10), dtype="float32") = R.nll_loss_backward(
             output_grad, predictions, targets, reduction="mean", ignore_index=-1
         )
         return gv
@@ -81,7 +81,7 @@ def test_nll_loss_backward_pred_no_weights():
     bb = relax.BlockBuilder()
     with bb.function("foo", [output_grad, predictions, targets]):
         gv = bb.emit(
-            relax.op.nll_loss_backward_pred(
+            relax.op.nll_loss_backward(
                 output_grad, predictions, targets, reduction="mean", ignore_index=-1
             )
         )
