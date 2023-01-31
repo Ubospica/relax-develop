@@ -14,21 +14,25 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import pytest
 import tvm
 import tvm.testing
-from tvm import relax, tir
-from tvm import TVMError
+from tvm import relax
 from tvm.ir import Op
 from tvm.script import relax as R
 
 
 def test_op_correctness():
-    g = relax.Var("g", R.Tensor((3, 10, 10)))
+    g = relax.Var("g", R.Tensor((3, 10, 10), "float32"))
     x = relax.Var("x", R.Tensor((3, 5, 10, 10), "float32"))
     y = relax.Var("y", R.Tensor((3, 10, 10), "int64"))
     w = relax.Var("w", R.Tensor((5,), "float32"))
     assert relax.op.nll_loss_backward_pred(g, x, y, w).op == Op.get("relax.nll_loss_backward_pred")
+
+    g = relax.Var("g", R.Tensor((3, 6, 8, 8), "float32"))
+    x = relax.Var("x", R.Tensor((3, 5, 10, 10), "float32"))
+    y = relax.Var("y", R.Tensor((6, 5, 3, 3), "float32"))
+    assert relax.op.conv2d_backward_data(g, x, y).op == Op.get("relax.conv2d_backward_data")
+    assert relax.op.conv2d_backward_weight(g, x, y).op == Op.get("relax.conv2d_backward_weight")
 
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_sinfo: relax.StructInfo):
@@ -45,8 +49,18 @@ def test_nll_loss_backward_pred_infer_struct_info():
     w = relax.Var("w", R.Tensor((5,), "float32"))
 
     _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y), x.struct_info)
-
     _check_inference(bb, relax.op.nll_loss_backward_pred(g, x, y, w), x.struct_info)
+
+
+def test_conv2d_backward_infer_struct_info():
+    bb = relax.BlockBuilder()
+
+    g = relax.Var("g", R.Tensor((3, 6, 8, 8), "float32"))
+    x = relax.Var("x", R.Tensor((3, 5, 10, 10), "float32"))
+    y = relax.Var("y", R.Tensor((6, 5, 3, 3), "float32"))
+
+    _check_inference(bb, relax.op.conv2d_backward_data(g, x, y), x.struct_info)
+    _check_inference(bb, relax.op.conv2d_backward_weight(g, x, y), y.struct_info)
 
 
 if __name__ == "__main__":

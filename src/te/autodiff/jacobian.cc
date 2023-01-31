@@ -322,7 +322,7 @@ Tensor Jacobian(const Tensor& output, const Tensor& input) {
   size_t i = 0;
   for (PrimExpr ext : input->shape) {
     IterVar new_v =
-        IterVar(Range(0, ext), Var("jac_i" + std::to_string(i++)), IterVarType::kDataPar);
+        IterVar(Range(0, ext), Var("jac_i" + std::to_string(i++), ext->dtype), IterVarType::kDataPar);
     // Append jacobian iter to new_axis
     new_axis.push_back(new_v);
     // Differentiate wrt input[input_indices]
@@ -358,7 +358,7 @@ Tensor Jacobian(const Tensor& output, const Tensor& input) {
   }
 
   Tensor ret = Tensor(new_shape, output->dtype, new_op, value_index);
-  ret = RemoveJacobianAndLiftNonzeroCond(ret);
+  // ret = RemoveJacobianAndLiftNonzeroCond(ret);
   return ret;
 }
 

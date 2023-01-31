@@ -17,6 +17,8 @@
 """Operators to implement the gradients. Used in `op_gradient.py`."""
 from typing import List, Optional, Tuple, Union
 
+from tvm import DataType
+
 from . import _ffi_api
 from ..expr import Expr
 
@@ -42,4 +44,66 @@ def nll_loss_backward_pred(
     result : relax.Expr
       The gradient w.r.t. predictions.
     """
-    return _ffi_api.nll_loss_backward_pred(output_grad, predictions, targets, weights, reduction, ignore_index)  # type: ignore
+    return _ffi_api.nll_loss_backward_pred(  # type: ignore
+      output_grad, predictions, targets, weights, reduction, ignore_index
+    )
+
+
+def conv2d_backward_data(
+    output_grad: Expr,
+    data: Expr,
+    weight: Expr,
+    strides: Tuple[int, int] = (1, 1),
+    padding: Tuple[int, int, int, int] = (0, 0),
+    dilation: Tuple[int, int] = (1, 1),
+    groups: int = 1,
+    data_layout: str = "NCHW",
+    kernel_layout: str = "OIHW",
+    out_layout: Optional[str] = None,
+    out_dtype: Optional[Union[str, DataType]] = None,
+) -> Expr:
+    """
+    """
+    return _ffi_api.conv2d_backward_data(  # type: ignore
+        output_grad,
+        data,
+        weight,
+        strides,
+        padding,
+        dilation,
+        groups,
+        data_layout,
+        kernel_layout,
+        out_layout,
+        out_dtype,
+    )
+
+
+def conv2d_backward_weight(
+    output_grad: Expr,
+    data: Expr,
+    weight: Expr,
+    strides: Tuple[int, int] = (1, 1),
+    padding: Tuple[int, int, int, int] = (0, 0),
+    dilation: Tuple[int, int] = (1, 1),
+    groups: int = 1,
+    data_layout: str = "NCHW",
+    kernel_layout: str = "OIHW",
+    out_layout: Optional[str] = None,
+    out_dtype: Optional[Union[str, DataType]] = None,
+) -> Expr:
+    """
+    """
+    return _ffi_api.conv2d_backward_weight(  # type: ignore
+        output_grad,
+        data,
+        weight,
+        strides,
+        padding,
+        dilation,
+        groups,
+        data_layout,
+        kernel_layout,
+        out_layout,
+        out_dtype,
+    )

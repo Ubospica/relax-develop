@@ -864,12 +864,13 @@ def conv(
 
     if meta_schedule_original_shape:
         auto_scheduler.rewrite_tensor_shape(filt, meta_schedule_original_shape)
-    batch, in_channel, *dimensions = np.array(get_const_tuple(inp.shape))[
+
+    batch, in_channel, *dimensions = np.array(inp.shape)[
         data_permutation_to
-    ].tolist()
-    num_filter, _, *kernel_dimensions = np.array(get_const_tuple(filt.shape))[
+    ]
+    num_filter, _, *kernel_dimensions = np.array(filt.shape)[
         kernel_permutation_to
-    ].tolist()
+    ]
 
     # Autoscheduler may have messed with the input layout, so we extract the
     # dimensions that it gives us
@@ -894,8 +895,9 @@ def conv(
         )
     ]
     # compute graph
-    pad_before = list(np.array([0, 0] + pad_begin)[data_permutation_from])
-    pad_after = list(np.array([0, 0] + pad_end)[data_permutation_from])
+    pad_zero = [tvm.tir.IntImm(pad_begin[0].dtype, 0), tvm.tir.IntImm(pad_begin[0].dtype, 0)]
+    pad_before = list(np.array(pad_zero + pad_begin)[data_permutation_from])
+    pad_after = list(np.array(pad_zero + pad_end)[data_permutation_from])
     temp = pad(inp, pad_before, pad_after, name="pad_temp")
     rc = te.reduce_axis((0, in_channel // groups), name="rc")
     rs = [te.reduce_axis((0, k), name=f"r{i}") for i, k in zip(["y", "x", "z"], kernel_dimensions)]
@@ -908,7 +910,7 @@ def conv(
         else:
             simplified_channel_index = ff // (num_filter // groups) * (in_channel // groups) + rc
 
-        return te.sum(
+        res= te.sum(
             temp.__getitem__(
                 tuple(
                     np.array(
@@ -927,6 +929,7 @@ def conv(
             # layout, so we reorder here.
             axis=np.array([rc, *rs])[data_permutation_from_reductions].tolist(),
         )
+        return res
 
     out = te.compute(
         list(np.array([batch, out_channel] + out_dimensions)[data_permutation_from]),

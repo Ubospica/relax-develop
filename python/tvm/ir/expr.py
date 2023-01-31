@@ -142,6 +142,8 @@ class Range(Node):
         if end is None:
             end = convert(begin)
             begin = const(0, dtype=end.dtype, span=span)
+        elif isinstance(begin, int) and isinstance(end, PrimExpr):
+            begin = const(begin, dtype=end.dtype, span=span)
         self.__init_handle_by_constructor__(_ffi_api.Range, begin, end, span)
 
     @staticmethod

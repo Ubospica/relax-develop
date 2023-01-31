@@ -18,7 +18,7 @@
  */
 
 /*!
- * \file gradient.h
+ * \file gradient_ops.h
  * \brief The functions to make Relax operators serving for gradients
  */
 #ifndef TVM_RELAX_OP_TENSOR_GRADIENT_H_
@@ -35,6 +35,16 @@ namespace relax {
     relax.nll_loss. Returns the gradient w.r.t. predictions. */
 Expr nll_loss_backward_pred(Expr output_grad, Expr predictions, Expr targets,
                             Optional<Expr> weights, String reduction, int ignore_index);
+
+/*! \brief  */
+Expr conv2d_backward_data(Expr output_grad, Expr data, Expr weight, Array<IntImm> strides, Array<IntImm> padding,
+                     Array<IntImm> dilation, int groups, String data_layout, String kernel_layout,
+                     Optional<String> out_layout, DataType out_dtype);
+
+/*! \brief  */
+Expr conv2d_backward_weight(Expr output_grad, Expr data, Expr weight, Array<IntImm> strides, Array<IntImm> padding,
+                     Array<IntImm> dilation, int groups, String data_layout, String kernel_layout,
+                     Optional<String> out_layout, DataType out_dtype);
 
 }  // namespace relax
 }  // namespace tvm

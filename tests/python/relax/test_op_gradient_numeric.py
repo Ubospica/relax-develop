@@ -15,8 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 import numpy as np
-import pytest
 import tvm
+import tvm.testing
 from tvm import relax
 from tvm.relax.transform import LegalizeOps
 from tvm.testing.utils import check_numerical_grads
@@ -63,19 +63,19 @@ def relax_check_gradients(
             return [_tvm_to_numpy(i) for i in data]
         return data.numpy()
 
-    def _gen_weights(shape):
+    def _gen_weights(shape, dtype):
         if isinstance(shape, list):
             ret = []
             for s in shape:
-                ret.append(_gen_weights(s))
+                ret.append(_gen_weights(s, dtype))
             return ret
         else:
-            return np.random.uniform(size=shape).astype(np.float32)
+            return np.random.uniform(size=shape).astype(dtype)
 
     param_vars = [
         _numpy_to_var(input_numpy, "x_" + str(i)) for i, input_numpy in enumerate(inputs_numpy)
     ]
-    weights = _gen_weights(output_shape)
+    weights = _gen_weights(output_shape, inputs_numpy[0].dtype)
     grad_var = _numpy_to_var(weights, "grad")
 
     # get gradient
@@ -129,6 +129,7 @@ def relax_check_gradients(
         bb1.emit_func_output(out)
     grad_mod = bb1.get()
     lower_grad_mod = LegalizeOps()(grad_mod)
+    lower_grad_mod.show()
 
     ex_1 = relax.vm.build(lower_grad_mod, target)
     vm_1 = relax.VirtualMachine(ex_1, dev)
@@ -358,112 +359,111 @@ def test_split_section(target, dev):
     )
 
 
+(reduction, ignore_index, weighted) = tvm.testing.parameters(
+    ("mean", True, -1),
+    ("sum", True, -1),
+    ("none", True, -1),
+    ("mean", True, 1),
+    ("mean", True, 1),
+    ("mean", False, 1),
+)
+
+
 @tvm.testing.parametrize_targets("llvm")
-def test_nll_loss(target, dev):
+def test_nll_loss(target, dev, reduction, ignore_index, weighted):
     data1_numpy = np.random.randint(0, 16, (2, 3, 4)).astype(np.float32)
     data2_numpy = np.random.randint(0, 3, (2, 4)).astype(np.int64)
     data3_numpy = np.random.randint(0, 16, (3,)).astype(np.float32)
+
+    out_shape = data2_numpy.shape if reduction == "none" else ()
+    input = [data1_numpy, data2_numpy] + ([data3_numpy] if weighted else [])
+    ignore_grads = [1] + ([2] if weighted else [])
+
     relax_check_gradients(
         relax.op.nn.nll_loss,
         "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
+        input,
         target,
         dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="mean",
+        out_shape,
+        ignore_grads=ignore_grads,
+        reduction=reduction,
+        ignore_index=ignore_index,
     )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
-        target,
-        dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="sum",
-    )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
-        target,
-        dev,
-        (2, 4),
-        ignore_grads=[1, 2],
-        reduction="none",
-    )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
-        target,
-        dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="mean",
-        ignore_index=1,
-    )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
-        target,
-        dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="mean",
-        ignore_index=1,
-    )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy],
-        target,
-        dev,
-        (),
-        ignore_grads=[
-            1,
-        ],
-        reduction="mean",
-        ignore_index=1,
-    )
+
+
+(reduction, ignore_index, weighted) = tvm.testing.parameters(
+    ("mean", True, -1),
+    ("sum", True, -1),
+    ("none", True, -1),
+)
 
 
 @tvm.testing.parametrize_targets("llvm")
-def test_nll_loss_no_batch(target, dev):
+def test_nll_loss_no_batch(target, dev, reduction, ignore_index, weighted):
     data1_numpy = np.random.randint(0, 16, (3,)).astype(np.float32)
     data2_numpy = np.random.randint(0, 3, ()).astype(np.int64)
     data3_numpy = np.random.randint(1, 16, (3,)).astype(np.float32)
+
+    out_shape = data2_numpy.shape if reduction == "none" else ()
+    input = [data1_numpy, data2_numpy] + ([data3_numpy] if weighted else [])
+    ignore_grads = [1] + ([2] if weighted else [])
+
     relax_check_gradients(
         relax.op.nn.nll_loss,
         "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
+        input,
         target,
         dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="mean",
+        out_shape,
+        ignore_grads=ignore_grads,
+        reduction=reduction,
+        ignore_index=ignore_index,
     )
+
+
+(shape1, shape2, out_shape, kwargs,) = tvm.testing.parameters(
+    (
+        (3, 2, 10, 10),
+        (3, 2, 3, 3),
+        (3, 3, 8, 8),
+        {},
+    ),
+    (
+        (3, 2, 10, 10),
+        (3, 2, 3, 3),
+        (3, 3, 5, 4),
+        {"strides": (2, 2), "padding": (1, 1), "dilation": (1, 2)},
+    ),
+    (
+        (3, 2, 10, 10),
+        (3, 2, 3, 3),
+        (3, 3, 7, 6),
+        {"strides": (2, 2), "padding": (3, 2), "dilation": (1, 1)},
+    ),
+    (
+        (3, 2, 10, 10),
+        (4, 1, 3, 3),
+        (3, 4, 6, 6),
+        {"groups": 2, "strides": (2, 2), "padding": (2, 2), "dilation": (1, 1)},
+    ),
+)
+
+
+@tvm.testing.parametrize_targets("llvm")
+def test_conv2d(target, dev, shape1, shape2, out_shape, kwargs):
+    # We should use float64 to check the correctness of conv2d
+    # to avoid possible precision problems
+    data1_numpy = np.random.randint(0, 16, shape1).astype(np.float64)
+    data2_numpy = np.random.randint(0, 3, shape2).astype(np.float64)
     relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
+        relax.op.nn.conv2d,
+        "relax.nn.conv2d",
+        [data1_numpy, data2_numpy],
         target,
         dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="sum",
-    )
-    relax_check_gradients(
-        relax.op.nn.nll_loss,
-        "relax.nn.nll_loss",
-        [data1_numpy, data2_numpy, data3_numpy],
-        target,
-        dev,
-        (),
-        ignore_grads=[1, 2],
-        reduction="none",
+        out_shape,
+        **kwargs,
     )
 
 

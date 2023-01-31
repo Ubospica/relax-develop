@@ -601,7 +601,7 @@ def _image_resize2d(bb: BlockBuilder, call: Call) -> Expr:
 ##################### Gradient Operators #####################
 
 
-def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
+def _nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
     # topi.sum don't support zero-dim x
     # we add support for that
     def topi_sum_extend(x):
@@ -675,6 +675,47 @@ def _nn_nll_loss_backward_pred(bb: BlockBuilder, call: Call) -> Expr:
         ignore_index=call.attrs.ignore_index,
     )
 
+
+def _conv2d_backward_data(bb: BlockBuilder, call: Call) -> Expr:
+    def te_conv2d_backward_data(output_grad, data, weight, stride, padding, dilation, groups, data_layout, kernel_layout, out_dtype):
+        output = topi.nn.conv(data, weight, stride, padding, dilation, groups, data_layout, kernel_layout, out_dtype)
+        return te.gradient(output, data, output_grad)
+
+    return bb.call_te(
+        te_conv2d_backward_data,
+        call.args[0],
+        call.args[1],
+        call.args[2],
+        stride=call.attrs.strides,
+        padding=call.attrs.padding,
+        dilation=call.attrs.dilation,
+        groups=call.attrs.groups,
+        data_layout=call.attrs.data_layout,
+        kernel_layout=call.attrs.kernel_layout,
+        out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
+        primfunc_name_hint="conv2d_backward_data",
+    )
+
+
+def _conv2d_backward_weight(bb: BlockBuilder, call: Call) -> Expr:
+    def te_conv2d_backward_weight(output_grad, data, weight, stride, padding, dilation, groups, data_layout, kernel_layout, out_dtype):
+        output = topi.nn.conv(data, weight, stride, padding, dilation, groups, data_layout, kernel_layout, out_dtype)
+        return te.gradient(output, weight, output_grad)
+
+    return bb.call_te(
+        te_conv2d_backward_weight,
+        call.args[0],
+        call.args[1],
+        call.args[2],
+        stride=call.attrs.strides,
+        padding=call.attrs.padding,
+        dilation=call.attrs.dilation,
+        groups=call.attrs.groups,
+        data_layout=call.attrs.data_layout,
+        kernel_layout=call.attrs.kernel_layout,
+        out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
+        primfunc_name_hint="conv2d_backward_weight",
+    )
 
 ##########################################################
 
@@ -762,7 +803,9 @@ DEFAULT_OP_LEGALIZE_MAP: Dict[str, LegalizeFunc] = {
     # Image
     "relax.image.resize2d": _image_resize2d,
     # Gradient
-    "relax.nll_loss_backward_pred": _nn_nll_loss_backward_pred,
+    "relax.nll_loss_backward_pred": _nll_loss_backward_pred,
+    "relax.conv2d_backward_data": _conv2d_backward_data,
+    "relax.conv2d_backward_weight": _conv2d_backward_weight,
     # Todo(relax-team): Introduce cumsum for GPT-2
     # "relax.cumsum": _cumsum,
 }

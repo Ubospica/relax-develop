@@ -17,33 +17,20 @@
 # pylint: disable=unused-argument, redefined-builtin
 """Gradient definitions for Relax operators"""
 from typing import List
+
 from tvm import relax
-from tvm.arith import Analyzer
-from tvm.relax.expr import Call, Var, Expr, ShapeExpr
 from tvm._ffi.base import TVMError
-from tvm.relax.op.gradient_ops import nll_loss_backward_pred
-from tvm.relax.op.index import take
+from tvm.arith import Analyzer
 
 from ..block_builder import BlockBuilder
+from ..expr import Call, Var, Expr, ShapeExpr
 from ...tir import PrimExpr
-from .base import register_gradient, shape_of
 
-from .unary import (
-    log,
-    negative,
-    exp,
-)
-from .binary import (
-    subtract,
-    multiply,
-    divide,
-    less,
-)
+from .base import register_gradient
+from .unary import negative, exp
+from .binary import subtract, multiply, less
 from .statistical import sum
-from .create import (
-    zeros,
-    ones,
-)
+from .create import zeros, ones
 from .search import where
 from .linear_algebra import matmul
 from .manipulate import (
@@ -55,6 +42,7 @@ from .manipulate import (
     split,
     squeeze,
 )
+from .gradient_ops import conv2d_backward_data, conv2d_backward_weight, nll_loss_backward_pred
 
 
 def _get_shape(expr: Expr) -> ShapeExpr:
@@ -512,31 +500,32 @@ def conv2d_grad(
         The gradient w.r.t. targets and weights are not available. Now `nll_loss_grad` return zeros
         for them.
     """
-    # bb.call_te(
-    #     topi.nn.conv,
-    #     inp=call.args[0],
-    #     filt=call.args[1],
-    #     stride=call.attrs.strides,
-    #     padding=call.attrs.padding,
-    #     dilation=call.attrs.dilation,
-    #     groups=call.attrs.groups,
-    #     data_layout=call.attrs.data_layout,
-    #     kernel_layout=call.attrs.kernel_layout,
-    #     out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
-    #     primfunc_name_hint="conv2d",
-    # )
-    # data_grad = conv2d_backward_data(  # type: ignore
-    #     output_grad,
-    #     orig_call.args[0],
-    #     orig_call.args[1],
+    data_grad = conv2d_backward_data(  # type: ignore
+        output_grad,
+        orig_call.args[0],
+        orig_call.args[1],
+        orig_call.attrs.strides,
+        orig_call.attrs.padding,
+        orig_call.attrs.dilation,
+        orig_call.attrs.groups,
+        orig_call.attrs.data_layout,
+        orig_call.attrs.kernel_layout,
+        orig_call.attrs.out_layout,
+        orig_call.attrs.out_dtype,
+    )
 
-    #     reduction=orig_call.attrs.reduction,
-    #     ignore_index=orig_call.attrs.ignore_index,
-    # )
-    # weight_grad = conv2d_backward_weight()
-    # tgt_grad = zeros(orig_call.args[1].struct_info.shape, orig_call.args[1].struct_info.dtype)
-    # if len(orig_call.args) == 2:
-    #     return [pred_grad, tgt_grad]
+    weight_grad = conv2d_backward_weight(  # type: ignore
+        output_grad,
+        orig_call.args[0],
+        orig_call.args[1],
+        orig_call.attrs.strides,
+        orig_call.attrs.padding,
+        orig_call.attrs.dilation,
+        orig_call.attrs.groups,
+        orig_call.attrs.data_layout,
+        orig_call.attrs.kernel_layout,
+        orig_call.attrs.out_layout,
+        orig_call.attrs.out_dtype,
+    )
 
-    # weight_grad = zeros(orig_call.args[2].struct_info.shape, orig_call.args[2].struct_info.dtype)
-    # return [pred_grad, tgt_grad, weight_grad]
+    return [data_grad, weight_grad]
