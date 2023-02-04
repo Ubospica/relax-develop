@@ -28,7 +28,7 @@ from ...tir import PrimExpr
 
 from .base import register_gradient
 from .unary import negative, exp
-from .binary import subtract, multiply, less
+from .binary import divide, subtract, multiply, less
 from .statistical import sum
 from .create import zeros, ones
 from .search import where
@@ -42,7 +42,8 @@ from .manipulate import (
     split,
     squeeze,
 )
-from .gradient_ops import conv2d_backward_data, conv2d_backward_weight, nll_loss_backward
+from .nn import conv2d_transpose
+from .gradient_ops import conv2d_backward_data, conv2d_backward_weight, nll_loss_backward, max_pool2d_backward
 
 
 def _get_shape(expr: Expr) -> ShapeExpr:
@@ -424,6 +425,59 @@ def log_softmax_grad(
     ]
 
 
+def _divide_batch(x: Expr, expr: Expr):
+    if x.struct_info.ndim > 1:
+        # TODO(chaofan, yixin): support symbolic shape
+        x_shape = _get_shape(x)
+        batch_size = int(x_shape[0])
+        # batch_size = take(shape_of(x), relax.const(0, dtype="int32"), axis=0)
+        # expr = divide(expr, batch_size)
+        expr = divide(expr, relax.const(batch_size, dtype=expr.struct_info.dtype))
+    return expr
+
+
+@register_gradient("relax.nn.cross_entropy_without_logits")
+def cross_entropy_without_logits_grad(
+    orig_var: Var,
+    orig_call: Call,
+    output_grad: Var,
+    ctx: BlockBuilder,
+):
+    """Gradient of cross_entropy_without_logits.
+
+    Forward Form:
+        z = cross_entropy_without_logits(x, y)
+
+    Backward:
+        Returns [-z_grad * y / x, -z_grad * log(x)].
+        If it has batch_size N, the results should divide by N.
+    """
+    x, y = orig_call.args
+    output_grad = _divide_batch(x, output_grad)
+    return [negative(multiply(output_grad, divide(y, x))), negative(multiply(output_grad, log(x)))]
+
+
+@register_gradient("relax.nn.cross_entropy_with_logits")
+def cross_entropy_with_logits_grad(
+    orig_var: Var,
+    orig_call: Call,
+    output_grad: Var,
+    ctx: BlockBuilder,
+):
+    """Gradient of cross_entropy_without_logits.
+
+    Forward Form:
+        z = cross_entropy_with_logits(x, y)
+
+    Backward:
+        Returns [-z_grad * y, -z_grad * x].
+        If it has batch_size N, the results should divide by N.
+    """
+    x, y = orig_call.args
+    output_grad = _divide_batch(x, output_grad)
+    return [negative(multiply(output_grad, y)), negative(multiply(output_grad, x))]
+
+
 @register_gradient("relax.nn.nll_loss")
 def nll_loss_grad(
     orig_var: Var,
@@ -500,12 +554,32 @@ def conv2d_grad(
         The gradient w.r.t. targets and weights are not available. Now `nll_loss_grad` return zeros
         for them.
     """
-    data_grad = conv2d_backward_data(  # type: ignore
+    assert attrs.data_layout == "NCHW", "only support NCHW data layout"
+    assert attrs.kernel_layout == "OIHW", "only support OIHW kernel layout"
+    assert attrs.out_layout in ["", "NCHW"], "only support NCHW output layout"
+
+    assert len(attrs.padding) == 4
+    assert len(attrs.strides) == 2
+    assert len(attrs.dilation) == 2
+
+    # calculate output_padding
+    data, weight = orig_call.args
+    attrs = orig_call.attrs
+    _, _, grad_h, grad_w = _get_shape(orig_call)
+    _, _, in_h, in_w = _get_shape(data)
+    _, _, filter_h, filter_w = _get_shape(weight)
+
+    out_h = (grad_h - 1) * attrs.stride[0] - attrs.padding[0] - attrs.padding[2] + filter_h
+    out_w = (grad_w - 1) * attrs.stride[1] - attrs.padding[1] - attrs.padding[3] + filter_w
+
+    output_padding = (in_h - out_h, in_w - out_w)
+
+    data_grad = conv2d_transpose(  # type: ignore
         output_grad,
-        orig_call.args[0],
         orig_call.args[1],
         orig_call.attrs.strides,
         orig_call.attrs.padding,
+        output_padding,
         orig_call.attrs.dilation,
         orig_call.attrs.groups,
         orig_call.attrs.data_layout,
@@ -517,7 +591,7 @@ def conv2d_grad(
     weight_grad = conv2d_backward_weight(  # type: ignore
         output_grad,
         orig_call.args[0],
-        orig_call.args[1],
+        _get_shape(data),
         orig_call.attrs.strides,
         orig_call.attrs.padding,
         orig_call.attrs.dilation,
@@ -529,47 +603,25 @@ def conv2d_grad(
     )
 
     return [data_grad, weight_grad]
-# def max_pool2d(
-#     data: Expr,
-#     pool_size: Union[int, Tuple[int, int]] = (1, 1),
-#     strides: Union[int, Tuple[int, int]] = (1, 1),
-#     padding: Union[int, Tuple[int, ...]] = (0, 0),
-#     dilation: Union[int, Tuple[int, int]] = (1, 1),
-#     ceil_mode: bool = False,
-#     layout: str = "NCHW",
-#     out_layout: Optional[str] = None,
-# ) -> Expr:
 
-    # return bb.call_te(
-    #     topi.nn.pool2d,
-    #     call.args[0],
-    #     kernel=call.attrs.pool_size,
-    #     stride=call.attrs.strides,
-    #     dilation=call.attrs.dilation,
-    #     padding=call.attrs.padding,
-    #     pool_type="max",
-    #     ceil_mode=call.attrs.ceil_mode,
-    #     layout=call.attrs.layout,
-    #     primfunc_name_hint="max_pool2d",
-    # )
-# @register_gradient("relax.nn.conv2d")
-# def max_pool2d_grad(
-#     orig_var: Var,
-#     orig_call: Call,
-#     output_grad: Var,
-#     ctx: BlockBuilder,
-# ):
-#     """Gradient of nll_loss.
-#     """
-#     return max_pool2d_backward(  # type: ignore
-#         output_grad,
-#         orig_call.args[0],
-#         orig_call.attrs.pool_size,
-#         orig_call.attrs.padding,
-#         orig_call.attrs.dilation,
-#         orig_call.attrs.groups,
-#         orig_call.attrs.data_layout,
-#         orig_call.attrs.kernel_layout,
-#         orig_call.attrs.out_layout,
-#         orig_call.attrs.out_dtype,
-#     )
+
+@register_gradient("relax.nn.max_pool2d")
+def max_pool2d_grad(
+    orig_var: Var,
+    orig_call: Call,
+    output_grad: Var,
+    ctx: BlockBuilder,
+):
+    """Gradient of max_pool2d.
+    """
+    return [max_pool2d_backward(  # type: ignore
+        output_grad,
+        orig_call.args[0],
+        orig_call.attrs.pool_size,
+        orig_call.attrs.strides,
+        orig_call.attrs.padding,
+        orig_call.attrs.dilation,
+        orig_call.attrs.ceil_mode,
+        orig_call.attrs.layout,
+        orig_call.attrs.out_layout,
+    )]

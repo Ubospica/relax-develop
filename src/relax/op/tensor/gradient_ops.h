@@ -46,6 +46,10 @@ Expr conv2d_backward_weight(Expr output_grad, Expr data, Expr weight, Array<IntI
                      Array<IntImm> dilation, int groups, String data_layout, String kernel_layout,
                      Optional<String> out_layout, DataType out_dtype);
 
+/*! \brief  */
+Expr max_pool2d_backward(Expr output_grad, Expr data, Array<IntImm> pool_size, Array<IntImm> strides, Array<IntImm> padding,
+                Array<IntImm> dilation, bool ceil_mode, String layout, Optional<String> out_layout);
+
 }  // namespace relax
 }  // namespace tvm
 

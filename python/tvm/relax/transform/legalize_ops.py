@@ -20,6 +20,7 @@ from typing import Callable, Dict, List, Optional, Union
 
 import tvm
 from tvm import te, tir, topi, relax
+from tvm.ir.expr import PrimExpr
 from tvm.relax import struct_info
 from tvm.ir.module import IRModule
 
@@ -39,6 +40,8 @@ TEFunc = Callable[..., te.Tensor]
 # BlockBuilder and the Call to be legalized, and outputs the legalization
 # result Expr.
 LegalizeFunc = Callable[[BlockBuilder, Call], Expr]
+
+PrimExprLike = Union[int, PrimExpr]
 
 
 def has_known_shape_value(sinfo: struct_info.StructInfo) -> bool:
@@ -77,7 +80,7 @@ def try_convert_to_scalar_const(expr: Expr) -> Union[Expr, bool, float, int]:
         The expr to be checked and converted.
 
     Returns
-    --–----
+    -------
     ret : Union[Expr, bool, float, int]
         Return a Python native value (int/float/bool) if the given
         expr is a scalar constant. Or return the input itself
@@ -441,6 +444,98 @@ def _nn_conv2d(bb: BlockBuilder, call: Call) -> Expr:
     )
 
 
+def te_layout_transform(tensor: te.Tensor, current_layout: str, desired_layout: str):
+    """Transform a tensor with the current layout to the desired layout.
+
+    E.g. layout_transform(t, "NCHW", "CNHW") --> topi.transpose(t, [1, 0, 2, 3])
+
+    Parameters
+    ----------
+    tensor: te.Tensor
+        The Tensor to transpose
+
+    current_layout: str
+        The current layout e.g. NCHW or OIHW
+
+    desired_layout: str
+        The desired layout, must be compatible with current_layout
+
+    Returns
+    -------
+    The layout_transformed tensor.
+    """
+    if sorted(current_layout) != sorted(desired_layout):
+        raise ValueError(f"Incompatible layouts: {current_layout} vs {desired_layout}")
+
+    if current_layout == desired_layout:
+        return tensor
+
+    current_layout_map = {c: i for i, c in enumerate(current_layout)}
+    desired_layout_map = {c: i for i, c in enumerate(desired_layout)}
+
+    axes = [None] * len(current_layout)
+    for c, i in desired_layout_map.items():
+        axes[i] = current_layout_map[c]
+    return topi.transpose(tensor, axes=axes)
+
+
+def _nn_conv2d_transpose(bb: BlockBuilder, call: Call) -> Expr:
+    if call.attrs.out_layout != call.attrs.data_layout:
+        logging.info(
+            "TOPI conv2d_transpose does not support different input-output "
+            "layouts, and thus cannot be legalized by TOPI"
+        )
+        return call
+    if len(call.attrs.data_layout) != 4 or len(call.attrs.kernel_layout) != 4:
+        logging.info(
+            "Conv2D where data layout or kernel layout have channel chunk "
+            "cannot be legalized by TOPI at this moment."
+        )
+        return call
+    if call.attrs.groups != 1:
+        data_layout = tir.layout(call.attrs.data_layout)
+        kernel_layout = tir.layout(call.attrs.kernel_layout)
+        ic = call.args[0].struct_info.shape.values[data_layout.index_of("C")]
+        oc = call.args[1].struct_info.shape.values[kernel_layout.index_of("O")]
+        if not isinstance(ic, tir.IntImm) or not isinstance(oc, tir.IntImm):
+            logging.info(
+                "Conv2D where number of groups is more than one and input or output "
+                "channel size is symbolic cannot be legalized by TOPI at this moment."
+            )
+            return call
+
+    def te_conv2d_transpose(
+        inp: te.Tensor,
+        filt: te.Tensor,
+        stride: List[int],
+        padding: Union[int, List[int]],
+        output_padding: Tuple[PrimExprLike, PrimExprLike],
+        dilation: Union[int, List[int]],
+        groups: int,
+        data_layout: str,
+        kernel_layout: str = "IOHW",
+        out_dtype: Union[str, None] = None,
+    ):
+        inp = te_layout_transform(inp, data_layout, "NCHW")
+        filt = te_layout_transform(filt, kernel_layout, "IOHW")
+        res = topi.nn.group_conv2d_transpose_nchw(inp, filt, stride, padding, out_dtype, output_padding, groups)
+        return te_layout_transform(res, "NCHW", data_layout)
+
+    return bb.call_te(
+        te_conv2d_transpose,
+        call.args[0],
+        call.args[1],
+        stride=call.attrs.strides,
+        padding=call.attrs.padding,
+        dilation=call.attrs.dilation,
+        groups=call.attrs.groups,
+        data_layout=call.attrs.data_layout,
+        kernel_layout=call.attrs.kernel_layout,
+        out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
+        primfunc_name_hint="conv2d",
+    )
+
+
 def _nn_max_pool2d(bb: BlockBuilder, call: Call) -> Expr:
     if call.attrs.out_layout != call.attrs.layout:
         logging.info(
@@ -607,8 +702,8 @@ def _nll_loss_backward(bb: BlockBuilder, call: Call) -> Expr:
     def topi_sum_extend(x):
         return x if x.ndim == 0 else topi.sum(x)
 
-    def nll_loss_backward_te(
-        output_grad, predictions: te.Tensor, targets, weights, reduction, ignore_index
+    def te_nll_loss_backward(
+        output_grad, predictions, targets, weights, reduction, ignore_index
     ):
         # handle ignore_index
         if ignore_index >= 0:
@@ -648,7 +743,7 @@ def _nll_loss_backward(bb: BlockBuilder, call: Call) -> Expr:
             "pred_grad",
         )
 
-    def nll_loss_backward_te_no_weight(
+    def te_nll_loss_backward_no_weight(
         output_grad, predictions, targets, reduction, ignore_index
     ):
         weight = topi.full(
@@ -656,23 +751,24 @@ def _nll_loss_backward(bb: BlockBuilder, call: Call) -> Expr:
             predictions.dtype,
             1.0,
         )
-        return nll_loss_backward_te(
+        return te_nll_loss_backward(
             output_grad, predictions, targets, weight, reduction, ignore_index
         )
 
     if len(call.args) == 3:
         return bb.call_te(
-            nll_loss_backward_te_no_weight,
+            te_nll_loss_backward_no_weight,
             *call.args,
             reduction=call.attrs.reduction,
             ignore_index=call.attrs.ignore_index,
         )
 
     return bb.call_te(
-        nll_loss_backward_te,
+        te_nll_loss_backward,
         *call.args,
         reduction=call.attrs.reduction,
         ignore_index=call.attrs.ignore_index,
+        primfunc_name_hint="nll_loss_backward",
     )
 
 
@@ -716,6 +812,27 @@ def _conv2d_backward_weight(bb: BlockBuilder, call: Call) -> Expr:
         out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
         primfunc_name_hint="conv2d_backward_weight",
     )
+
+
+def _max_pool2d_backward(bb: BlockBuilder, call: Call) -> Expr:
+    def te_max_pool2d_backward(output_grad, data, kernel, stride, dilation, padding, pool_type, ceil_mode, layout):
+        output = topi.nn.pool2d(data, kernel, stride, dilation, padding, pool_type, ceil_mode, layout)
+        return te.gradient(output, data, output_grad)
+
+    return bb.call_te(
+        te_max_pool2d_backward,
+        call.args[0],
+        call.args[1],
+        kernel=call.attrs.pool_size,
+        stride=call.attrs.strides,
+        dilation=call.attrs.dilation,
+        padding=call.attrs.padding,
+        pool_type="max",
+        ceil_mode=call.attrs.ceil_mode,
+        layout=call.attrs.layout,
+        primfunc_name_hint="max_pool2d_backward",
+    )
+
 
 ##########################################################
 
@@ -806,6 +923,7 @@ DEFAULT_OP_LEGALIZE_MAP: Dict[str, LegalizeFunc] = {
     "relax.nll_loss_backward": _nll_loss_backward,
     "relax.conv2d_backward_data": _conv2d_backward_data,
     "relax.conv2d_backward_weight": _conv2d_backward_weight,
+    "relax.max_pool2d_backward": _max_pool2d_backward,
     # Todo(relax-team): Introduce cumsum for GPT-2
     # "relax.cumsum": _cumsum,
 }

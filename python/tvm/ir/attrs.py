@@ -23,9 +23,9 @@ from . import _ffi_api
 
 
 @tvm._ffi.register_object
-class Attrs(Object):
-    """Attribute node, which is mainly use for defining attributes of relay operators.
+class Attrs(Object): which is mainly use for defining attributes of relay operators.
 
+    """Attribute node,
     Used by function registered in python side, such as compute, schedule and alter_layout.
     Attrs is passed as the first argument to these functions.
     """

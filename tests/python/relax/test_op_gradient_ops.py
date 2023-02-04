@@ -34,6 +34,10 @@ def test_op_correctness():
     assert relax.op.conv2d_backward_data(g, x, y).op == Op.get("relax.conv2d_backward_data")
     assert relax.op.conv2d_backward_weight(g, x, y).op == Op.get("relax.conv2d_backward_weight")
 
+    g = relax.Var("g", R.Tensor((3, 3, 8, 8), "float32"))
+    x = relax.Var("x", R.Tensor((3, 2, 10, 10), "float32"))
+    assert relax.op.max_pool2d_backward(g, x, (3, 3)).op == Op.get("relax.max_pool2d_backward")
+
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_sinfo: relax.StructInfo):
     ret = bb.normalize(call)
@@ -61,6 +65,16 @@ def test_conv2d_backward_infer_struct_info():
 
     _check_inference(bb, relax.op.conv2d_backward_data(g, x, y), x.struct_info)
     _check_inference(bb, relax.op.conv2d_backward_weight(g, x, y), y.struct_info)
+
+
+def test_max_pool2d_backward_infer_struct_info():
+    bb = relax.BlockBuilder()
+
+    g = relax.Var("g", R.Tensor((3, 3, 8, 8), "float32"))
+    x = relax.Var("x", R.Tensor((3, 2, 10, 10), "float32"))
+
+    _check_inference(bb, relax.op.max_pool2d_backward(g, x, (2, 2)), x.struct_info)
+    _check_inference(bb, relax.op.max_pool2d_backward(g, x, (3, 3)), x.struct_info)
 
 
 if __name__ == "__main__":

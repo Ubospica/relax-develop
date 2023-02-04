@@ -910,7 +910,7 @@ def conv(
         else:
             simplified_channel_index = ff // (num_filter // groups) * (in_channel // groups) + rc
 
-        res= te.sum(
+        return te.sum(
             temp.__getitem__(
                 tuple(
                     np.array(
@@ -929,7 +929,6 @@ def conv(
             # layout, so we reorder here.
             axis=np.array([rc, *rs])[data_permutation_from_reductions].tolist(),
         )
-        return res
 
     out = te.compute(
         list(np.array([batch, out_channel] + out_dimensions)[data_permutation_from]),

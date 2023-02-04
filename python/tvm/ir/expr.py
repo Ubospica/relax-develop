@@ -137,7 +137,6 @@ class Range(Node):
     The constructor creates the range `[begin, end)`
     if the end argument is not None. Otherwise, it creates `[0, begin)`.
     """
-
     def __init__(self, begin, end=None, span=None):
         if end is None:
             end = convert(begin)

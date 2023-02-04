@@ -84,7 +84,7 @@ def conv2d_backward_weight(
     data: Expr,
     weight: Expr,
     strides: Tuple[int, int] = (1, 1),
-    padding: Tuple[int, int, int, int] = (0, 0),
+    padding: Tuple[int, int, int, int] = (0, 0, 0, 0),
     dilation: Tuple[int, int] = (1, 1),
     groups: int = 1,
     data_layout: str = "NCHW",
@@ -106,4 +106,22 @@ def conv2d_backward_weight(
         kernel_layout,
         out_layout,
         out_dtype,
+    )
+
+
+def max_pool2d_backward(
+    output_grad: Expr,
+    data: Expr,
+    pool_size: Tuple[int, int] = (1, 1),
+    strides: Tuple[int, int] = (1, 1),
+    padding: Tuple[int, int, int, int] = (0, 0, 0, 0),
+    dilation: Tuple[int, int] = (1, 1),
+    ceil_mode: bool = False,
+    layout: str = "NCHW",
+    out_layout: Optional[str] = None,
+) -> Expr:
+    """
+    """
+    return _ffi_api.max_pool2d_backward(  # type: ignore
+        output_grad, data, pool_size, strides, padding, dilation, ceil_mode, layout, out_layout
     )

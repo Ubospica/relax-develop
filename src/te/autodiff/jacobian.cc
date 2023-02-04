@@ -358,7 +358,7 @@ Tensor Jacobian(const Tensor& output, const Tensor& input) {
   }
 
   Tensor ret = Tensor(new_shape, output->dtype, new_op, value_index);
-  // ret = RemoveJacobianAndLiftNonzeroCond(ret);
+  ret = RemoveJacobianAndLiftNonzeroCond(ret);
   return ret;
 }
 

@@ -18,9 +18,12 @@
 from typing import List, Optional, Tuple, Union
 
 from tvm import DataType
+from tvm.ir.expr import PrimExpr
 
 from . import _ffi_api
 from ...expr import Expr
+
+PrimExprLike = Union[int, PrimExpr]
 
 
 def conv2d(
@@ -112,6 +115,89 @@ def conv2d(
         weight,
         strides,
         padding,
+        dilation,
+        groups,
+        data_layout,
+        kernel_layout,
+        out_layout,
+        out_dtype,
+    )
+
+
+def conv2d_transpose(
+    data: Expr,
+    weight: Expr,
+    strides: Union[int, Tuple[int, int]] = (1, 1),
+    padding: Union[int, Tuple[int, ...]] = (0, 0),
+    output_padding: Union[PrimExprLike, Tuple[PrimExpr, ...]] = (0, 0),
+    dilation: Union[int, Tuple[int, int]] = (1, 1),
+    groups: int = 1,
+    data_layout: str = "NCHW",
+    kernel_layout: str = "OIHW",
+    out_layout: Optional[str] = None,
+    out_dtype: Optional[Union[str, DataType]] = None,
+) -> Expr:
+    r"""Two dimensional transposed convolution operator.
+
+    Parameters
+    ----------
+    data : relax.Expr
+        The input data to the operator.
+
+    weight : relax.Expr
+        The weight expressions.
+
+    strides : Union[int, Tuple[int, int]]
+        The strides of convolution. It is required to have length either 1 or 2.
+
+    padding : Union[int, Tuple[int, ...]]
+        The padding of convolution on both sides of inputs before convolution.
+        It is required to have length either 1, 2 or 4.
+
+    output_padding : Union[PrimExprLike, Tuple[PrimExprLike, ...]], optional
+        Used to disambiguate the output shape.
+
+    dilation : Union[int, Tuple[int, int]]
+        Specifies the dilation rate to be used for dilated convolution.
+        It is required to have length either 1 or 2.
+
+    groups : int
+        Number of groups to split the input into for grouped convolution.
+        The number of input and output channels should be divisible by the number of groups.
+
+    data_layout : str
+        Layout of the input.
+
+    kernel_layout : str
+        Layout of the weight.
+
+    out_layout : Optional[str]
+        Layout of the output. If not specified, it is the same as data_layout
+
+    out_dtype : Optional[Union[str, DataType]]
+        Specifies the output data type for mixed precision conv2d.
+
+    Returns
+    -------
+    result : relax.Expr
+        The computed result.
+    """
+    # TODO: symbolic shape is not fully supported now
+    if isinstance(strides, int):
+        strides = (strides, strides)
+    if isinstance(dilation, int):
+        dilation = (dilation, dilation)
+    if isinstance(padding, int):
+        padding = (padding, padding, padding, padding)
+    if isinstance(output_padding, PrimExprLike):
+        output_padding = (output_padding, output_padding)
+
+    return _ffi_api.conv2d_transpose(  # type: ignore
+        data,
+        weight,
+        strides,
+        padding,
+        output_padding,
         dilation,
         groups,
         data_layout,
@@ -552,6 +638,31 @@ def dropout(data: Expr, rate: float = 0.5) -> Expr:
         mask tensor (1.0 where element not dropped, 0.0 where dropped)
     """
     return _ffi_api.dropout(data, rate)  # type: ignore
+
+
+def cross_entropy_with_logits(predictions: Expr, labels: Expr) -> Expr:
+    r"""CrossEntropy with logits between the predictions and labels.
+
+    The shape issue is the same with cross_entropy_without_logits.
+
+    .. math::
+
+        \text{cross\_entropy\_with\_logits}(x_i, y_i) = \frac{\sum_i -x_i \cdot y_i}{N}
+
+    Parameters
+    ----------
+    predictions : relax.Expr
+      The predictions.
+
+    labels : relax.Expr
+      The labels (the ground truth values).
+
+    Returns
+    -------
+    result : relax.Expr
+      The computed result.
+    """
+    return _ffi_api.cross_entropy_with_logits(predictions, labels)  # type: ignore
 
 
 def nll_loss(

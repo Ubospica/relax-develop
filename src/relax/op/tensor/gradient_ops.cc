@@ -118,6 +118,33 @@ TVM_REGISTER_OP("relax.conv2d_backward_weight")
     .set_attrs_type<Conv2DAttrs>()
     .set_attr<FInferStructInfo>("FInferStructInfo", InferStructInfoConv2dBackwardWeight);
 
+Expr max_pool2d_backward(Expr output_grad, Expr data, Array<IntImm> pool_size, Array<IntImm> strides, Array<IntImm> padding,
+                Array<IntImm> dilation, bool ceil_mode, String layout,
+                Optional<String> out_layout) {
+  auto attrs = make_object<MaxPool2DAttrs>();
+  attrs->pool_size = std::move(pool_size);
+  attrs->strides = ConvertIntImmToInt64(strides);
+  attrs->padding = ConvertIntImmToInt64(padding);
+  attrs->dilation = ConvertIntImmToInt64(dilation);
+  attrs->ceil_mode = ceil_mode;
+  attrs->layout = layout;
+  attrs->out_layout = out_layout.value_or(layout);
+  static const Op& op = Op::Get("relax.max_pool2d_backward");
+  return Call(op, {std::move(output_grad), std::move(data)}, Attrs(attrs), {});
+}
+
+TVM_REGISTER_GLOBAL("relax.op.max_pool2d_backward").set_body_typed(max_pool2d_backward);
+
+StructInfo InferStructInfoMaxPool2DBackward(const Call& call, const BlockBuilder& ctx) {
+  return GetStructInfo(call->args[1]);
+}
+
+TVM_REGISTER_OP("relax.max_pool2d_backward")
+    .set_num_inputs(2)
+    .add_argument("output_grad", "Tensor", "The output gradient.")
+    .add_argument("data", "Tensor", "The input tensor")
+    .set_attrs_type<MaxPool2DAttrs>()
+    .set_attr<FInferStructInfo>("FInferStructInfo", InferStructInfoMaxPool2DBackward);
 
 }  // namespace relax
 }  // namespace tvm
