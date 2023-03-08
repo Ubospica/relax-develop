@@ -44,7 +44,6 @@ from .manipulate import (
     reshape,
     split,
     squeeze,
-    tile,
 )
 from .nn import conv2d_transpose
 from .grad import (
@@ -733,7 +732,8 @@ def cross_entropy_with_logits_grad(
     output_grad = _divide_batch(x, output_grad)
     return [-output_grad * y, -output_grad * x]
 
-
+# TODO(chaofan, yixin): remove nll_loss_backward and register the gradient using existing operators
+# This may require one_hot, strided_set, etc.
 @register_gradient("relax.nn.nll_loss")
 def nll_loss_grad(
     orig_var: Var,
@@ -810,12 +810,12 @@ kernel_layout, out_layout, out_dtype)`
     _, in_channel, in_h, in_w = _get_shape(data)
     _, _, filter_h, filter_w = _get_shape(weight)
 
-    fpad_top, fpad_left, fpad_bottom, fpad_right = attrs.padding
+    pad_top, pad_left, pad_bottom, pad_right = attrs.padding
     stride_h, stride_w = attrs.strides
     dilation_h, dilation_w = attrs.dilation
 
-    out_h = (grad_h - 1) * stride_h - fpad_top - fpad_bottom + filter_h
-    out_w = (grad_w - 1) * stride_w - fpad_left - fpad_right + filter_w
+    out_h = (grad_h - 1) * stride_h - pad_top - pad_bottom + filter_h
+    out_w = (grad_w - 1) * stride_w - pad_left - pad_right + filter_w
 
     output_padding = (in_h - out_h, in_w - out_w)
 
@@ -833,49 +833,32 @@ kernel_layout, out_layout, out_dtype)`
         attrs.out_dtype,
     )
 
-    
-
-    grad = tile(output_grad, [1, in_channel // attrs.groups, 1, 1])
-    # (batch * oc * ic // groups, 1, grad_h, grad_h)
-    grad = reshape(grad, [batch * out_channel * in_channel // attrs.groups, 1, grad_h, grad_w])
-    # (1, batch * ic, in_h, in_w)
-    data = reshape(data, [1, batch * in_channel, in_h, in_w])
+    if attrs.groups != 1:
+        data = reshape(data, (batch, attrs.groups, in_channel // attrs.groups, in_h, in_w))
+        data = permute_dims(data, [1, 0, 2, 3, 4])
+        data = reshape(data, (batch * attrs.groups, in_channel // attrs.groups, in_h, in_w))
 
     weight_grad = conv2d(
         data,
-        grad,
+        output_grad,
         strides=attrs.dilation,
         padding=attrs.padding,
         dilation=attrs.strides,
-        groups=int(in_channel * batch),
+        groups=attrs.groups,
         out_dtype=attrs.out_dtype,
+        data_layout="CNHW",
+        kernel_layout="IOHW",
+        out_layout="CNHW",
     )
 
-    # infer shape of backward_weight
-    padded_weight_grad_h = (
-        in_h - (grad_h - 1) * stride_h - 1 + fpad_top + fpad_bottom
-    ) // dilation_h + 1
-    padded_weight_grad_w = (
-        in_w - (grad_w - 1) * stride_w - 1 + fpad_left + fpad_right
-    ) // dilation_w + 1
+    # infer shape of weight_grad
+    weight_grad_h = (in_h - (grad_h - 1) * stride_h - 1 + pad_top + pad_bottom) // dilation_h + 1
+    weight_grad_w = (in_w - (grad_w - 1) * stride_w - 1 + pad_left + pad_right) // dilation_w + 1
 
-    weight_grad = reshape(
-        weight_grad,
-        [
-            batch,
-            in_channel // attrs.groups,
-            out_channel,
-            padded_weight_grad_h,
-            padded_weight_grad_w,
-        ],
-    )
-    weight_grad = sum(weight_grad, axis=0)
-    weight_grad = permute_dims(weight_grad, [1, 0, 2, 3])
+    assert weight_grad_h >= filter_h
+    assert weight_grad_w >= filter_w
 
-    assert padded_weight_grad_h >= filter_h
-    assert padded_weight_grad_w >= filter_w
-
-    if padded_weight_grad_h > filter_h or padded_weight_grad_w > filter_w:
+    if weight_grad_h > filter_h or weight_grad_w > filter_w:
         weight_grad = strided_slice(
             weight_grad,
             axes=[0, 1, 2, 3],
