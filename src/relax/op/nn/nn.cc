@@ -342,6 +342,14 @@ TVM_REGISTER_OP("relax.nn.dropout")
     .set_attr<FInferStructInfo>("FInferStructInfo", InferStructInfoDropout);
 
 /* relax.nn.cross_entropy_with_logits */
+Expr cross_entropy_with_logits(Expr predictions, Expr labels) {
+  static const Op& op = Op::Get("relax.nn.cross_entropy_with_logits");
+  return Call(op, {std::move(predictions), std::move(labels)}, {}, {});
+}
+
+TVM_REGISTER_GLOBAL("relax.op.nn.cross_entropy_with_logits")
+    .set_body_typed(cross_entropy_with_logits);
+
 StructInfo InferStructInfoCrossEntropy(const Call& call, const BlockBuilder& ctx) {
   Array<TensorStructInfo> input_sinfo = GetInputTensorStructInfo(call, ctx);
   TensorStructInfo pred_sinfo = input_sinfo[0];
@@ -384,14 +392,6 @@ StructInfo InferStructInfoCrossEntropy(const Call& call, const BlockBuilder& ctx
   }
   return TensorStructInfo(ShapeExpr(Array<PrimExpr>()), dtype);
 }
-
-Expr cross_entropy_with_logits(Expr predictions, Expr labels) {
-  static const Op& op = Op::Get("relax.nn.cross_entropy_with_logits");
-  return Call(op, {std::move(predictions), std::move(labels)}, {}, {});
-}
-
-TVM_REGISTER_GLOBAL("relax.op.nn.cross_entropy_with_logits")
-    .set_body_typed(cross_entropy_with_logits);
 
 TVM_REGISTER_OP("relax.nn.cross_entropy_with_logits")
     .set_num_inputs(2)

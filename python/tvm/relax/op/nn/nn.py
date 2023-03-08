@@ -387,7 +387,6 @@ def adaptive_avg_pool2d(
     This operator takes data as input and does 2D average value calculation
     across each window represented by WxH.
 
-
     In the default case, where the data_layout is `NCHW`
     a data Tensor with shape `(batch_size, in_channels, height, width)`,
     to produce an output Tensor with shape
