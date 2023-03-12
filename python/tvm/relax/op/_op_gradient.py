@@ -766,9 +766,11 @@ def nll_loss_grad(
         The gradient w.r.t. targets and weights are not available. Now `nll_loss_grad` return zeros
         for them.
     """
-    pred_grad = nll_loss_backward(  # type: ignore
+    pred_grad = nll_loss_backward(
         output_grad,
-        *orig_call.args,
+        orig_call.args[0],
+        orig_call.args[1],
+        weights=orig_call.args[2] if len(orig_call.args) == 3 else None,
         reduction=orig_call.attrs.reduction,
         ignore_index=orig_call.attrs.ignore_index,
     )
