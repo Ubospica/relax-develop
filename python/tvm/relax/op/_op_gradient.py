@@ -732,6 +732,7 @@ def cross_entropy_with_logits_grad(
     output_grad = _divide_batch(x, output_grad)
     return [-output_grad * y, -output_grad * x]
 
+
 # TODO(chaofan, yixin): remove nll_loss_backward and register the gradient using existing operators
 # This may require one_hot, strided_set, etc.
 @register_gradient("relax.nn.nll_loss")
