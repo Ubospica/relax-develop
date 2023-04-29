@@ -95,6 +95,18 @@ class CheckpointGenerator : private ExprMutator {
     return new_var;
   }
 
+  Expr VisitExpr_(const CallNode* call_node) {
+    Expr new_op = this->VisitExpr(call_node->op);
+
+    tvm::Array<Expr> call_args;
+    for (Expr arg : call_node->args) {
+      Expr new_arg = this->VisitExpr(arg);
+      call_args.push_back(new_arg);
+    }
+
+    return Call(new_op, call_args, call_node->attrs, call_node->sinfo_args, call_node->span);
+  }
+
   BlockBuilder builder_;
   Map<Var, Var> checkpoint_map_;
   Map<Var, Expr> binding_map_;
@@ -404,7 +416,7 @@ class GradientMutator : private ExprMutator {
     // 4. Generate the adjoint function, use RemoveAllUnused to simplify it, and then return the
     // IRModule with the adjoint function
     return GradientMutator(mod, require_grads_value, target_index, checkpoint)
-        .AddAdjointFunction(new_func, func_name);
+        .AddAdjointFunction(new_func, func_name, true);
   }
 
  private:
@@ -415,8 +427,12 @@ class GradientMutator : private ExprMutator {
         checkpoint_(checkpoint),
         target_index_(target_index) {}
 
-  IRModule AddAdjointFunction(const Function& func, const String& func_name) {
-    Function transformed_func = RemoveAllUnused(Downcast<Function>(VisitExpr(func)));
+  IRModule AddAdjointFunction(const Function& func, const String& func_name,
+                              bool remove_all_unused = true) {
+    Function transformed_func = Downcast<Function>(VisitExpr(func));
+    if (remove_all_unused) {
+      transformed_func = RemoveAllUnused(transformed_func);
+    }
     builder_->AddFunction(transformed_func, func_name + "_adjoint");
     return builder_->GetContextIRModule();
   }
