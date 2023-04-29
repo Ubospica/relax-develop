@@ -40,10 +40,26 @@
 namespace tvm {
 namespace relax {
 
+// We will use NestedMsg<Expr> to handle adjoint updates involving tuple handling
 using AdjointMsg = NestedMsg<Expr>;
 
+/*!
+ * \brief A tool class for BackwardBindingGenerator
+ * Generate the checkpoint bindings. To be specific, in the backward process, we need to use vars
+ * computed in the forward process. Those vars contained in the given checkpoint array, and the
+ * inputs of the function, will be used as is; other vars will be computed again (this will
+ * generate bindings) using the checkpoint vars.
+ */
 class CheckpointGenerator : private ExprMutator {
  public:
+  /*!
+   * \brief Generate the checkpoint bindings for BackwardBindingGenerator
+   *
+   * \param builder The BlockBuilder of BackwardBindingGenerator, used to generate bindings
+   * \param orig_params The parameters of the forward function
+   * \param forward_block The forward DataflowBlock
+   * \param checkpoint The checkpointed vars. If it is NullOpt, all vars will be checkpointed.
+   */
   CheckpointGenerator(const BlockBuilder& builder, const Array<Var>& orig_params,
                       const DataflowBlock& forward_block, const Optional<Array<Var>>& checkpoint)
       : builder_(builder) {
@@ -52,6 +68,7 @@ class CheckpointGenerator : private ExprMutator {
       checkpoint_set.insert(checkpoint.value().begin(), checkpoint.value().end());
     }
 
+    // func params will always be checkpointed
     for (auto var : orig_params) {
       checkpoint_map_.Set(var, var);
     }
@@ -67,6 +84,7 @@ class CheckpointGenerator : private ExprMutator {
     }
   }
 
+  // Receives the forward binding var and value, returns the checkpointed binding var and value.
   std::pair<Var, Expr> UpdateBinding(const Var& var, const Expr& value) {
     Expr new_value = VisitExpr(value);
     auto it = checkpoint_map_.find(var);
@@ -95,6 +113,7 @@ class CheckpointGenerator : private ExprMutator {
     return new_var;
   }
 
+  // Create a new binding for Call node. The purpose for that is to pass the structural equal check.
   Expr VisitExpr_(const CallNode* call_node) {
     Expr new_op = this->VisitExpr(call_node->op);
 
@@ -108,12 +127,16 @@ class CheckpointGenerator : private ExprMutator {
   }
 
   BlockBuilder builder_;
+  // The mapping from the forward vars to the checkpoint vars.
   Map<Var, Var> checkpoint_map_;
+  // The mapping from the forward vars to their bindings, used to generate checkpoint bindings
   Map<Var, Expr> binding_map_;
 };
 
-// A tool class for GradientMutator
-// Visit the forward bindings and generate the backward bindings
+/*!
+ * \brief A tool class for GradientMutator
+ * Visit the forward bindings and generate the backward bindings
+ */
 class BackwardBindingGenerator : private ExprVisitor {
  public:
   /*!
@@ -122,9 +145,12 @@ class BackwardBindingGenerator : private ExprVisitor {
    * \param builder The BlockBuilder of GradientMutator, used to generate bindings
    * \param forward_block The forward DataflowBlock
    * \param require_grads The Var list to differentiate w.r.t.
+   * \param orig_params The params of the forward function. Used for checkpointing
    * \param target_var The target Var to differentiate
    * \param orig_return_value The original return value of the function. The new return value is a
-   * 2-tuple, containing the original return value, and a tuple of the adjoints of parameters.
+   * 2-tuple, containing the original return value, and a tuple of the adjoints of parameters
+   * \param checkpoint The checkpointed vars. checkpoint being NullOpt means all Vars are
+   * checkpointed
    * \return The return expr of new adjoint function.
    */
   static Expr Generate(const BlockBuilder& builder, const DataflowBlock& forward_block,
@@ -157,7 +183,7 @@ class BackwardBindingGenerator : private ExprVisitor {
     auto* var_binding = binding.as<VarBindingNode>();
 
     if (adjoint_var_map_.count(var_binding->var) == 0) {
-      // This var is not used in the following bindings
+      // Optimization: this var is not used in the following bindings
       return;
     }
 
@@ -171,7 +197,7 @@ class BackwardBindingGenerator : private ExprVisitor {
     ExprVisitor::VisitBinding_(var_binding);
   }
 
-  // Handle the adjoint expr of the inputs of binding
+  // The following functions will handle the adjoint expr of the inputs of binding
   // For call node, we would call the registered gradient functions
   void VisitBinding_(const VarBindingNode* binding, const CallNode* call) final {
     static const OpAttrMap<FPrimalGradient>& gradient_op_map =
@@ -179,6 +205,7 @@ class BackwardBindingGenerator : private ExprVisitor {
 
     Var adjoint_var = adjoint_var_map_[binding->var];
     const Op& call_op = Downcast<Op>(call->op);
+    // Support checkpointing
     auto [checkpoint_var, checkpoint_call] =
         checkpoint_generator_.UpdateBinding(binding->var, GetRef<Call>(call));
     const Array<Expr>& partials = gradient_op_map[call_op](
@@ -196,20 +223,19 @@ class BackwardBindingGenerator : private ExprVisitor {
 
   // For Tuple nodes, we would iterate over the input tuple and update adjoint exprs for each input
   // e.g.
-  // a = (b, c)
+  // a = (b, c) -->
   // b_adjoint += a_adjoint_var[0], c_adjoint += a_adjoint_var[1]
-  // a = ((b, c), d)
+  //
+  // a = ((b, c), d) -->
   // b_adjoint += a_adjoint_var[0][0], c_adjoint += a_adjoint_var[0][1],
   // d_adjoint += a_adjoint_var[1]
-  //
-  // Here we use adjoint_var to simplify calculation
   void VisitBinding_(const VarBindingNode* binding, const TupleNode* tuple) final {
     UpdateAdjoint(GetRef<Tuple>(tuple), adjoint_var_map_[binding->var]);
   }
 
   // For TupleGetItem nodes, we do a partial update
   // e.g.
-  // b = a[0]
+  // b = a[0] -->
   // a_adjoint[0] += b_adjoint_var
   // If a_adjoint does not exist, we would create a zeros tuple as a_adjoint first, and then add
   void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* tuple_get_item) final {
@@ -223,11 +249,11 @@ class BackwardBindingGenerator : private ExprVisitor {
       auto nested_zeros = Downcast<Tuple>(NestedZeros(GetRef<StructInfo>(tuple_sinfo)));
       auto tuple_fields = nested_zeros->fields;
       tuple_fields.Set(tuple_get_item->index, adjoint_var_map_[binding->var]);
-      EmitAdjoint(tuple_var, Tuple(tuple_fields), true);
+      EmitAdjoint(tuple_var, Tuple(tuple_fields), false);
     } else {
       Expr updated_adjoint = AddInTuple(adjoint_var_map_[tuple_var], tuple_get_item->index,
                                         adjoint_var_map_[binding->var]);
-      EmitAdjoint(tuple_var, updated_adjoint, true);
+      EmitAdjoint(tuple_var, updated_adjoint, false);
     }
   }
 
@@ -243,7 +269,13 @@ class BackwardBindingGenerator : private ExprVisitor {
   // For constant nodes, we do not have to handle it because it does not contribute to the adjoint
   void VisitBinding_(const VarBindingNode* binding, const ConstantNode* var) final { return; }
 
-  // Add partial (Expr type) to the adjoint of expr
+  // Add partial to the adjoint of expr
+  // expr may be a argument of a func call / tuple definition. Its type can be
+  // 1) var 2) constant (in this case, the adjoint will not be updated)
+  // 3) (maybe nested) tuple of vars / constant
+  //
+  // We use NestedMsg to simplify handling (nested) tuples. That requires converting partial from
+  // expr to NestedMsg or backwards.
   void UpdateAdjoint(const Expr& expr, const Expr& partial) {
     AdjointMsg partial_msg = ExprToAdjointMsg(builder_->Normalize(partial));
     DecomposeNestedMsg(expr, partial_msg, [&](Expr leaf, AdjointMsg msg) {
@@ -254,7 +286,7 @@ class BackwardBindingGenerator : private ExprVisitor {
         if (it != adjoint_var_map_.end()) {
           updated_adjoint_expr = TupleAwareAdd((*it).second, updated_adjoint_expr);
         }
-        EmitAdjoint(v, updated_adjoint_expr, true);
+        EmitAdjoint(v, updated_adjoint_expr, false);
       } else if (leaf->IsInstance<ConstantNode>()) {
         // nothing to do
       } else if (leaf->IsInstance<ShapeExprNode>()) {
@@ -276,29 +308,27 @@ class BackwardBindingGenerator : private ExprVisitor {
     Array<Expr> out_adjoints;
 
     for (Var var : require_grads) {
-      // If the var don't have adjoint msg, it do not contribute to the target
-      // so its adjoint is zeros
+      // If the var don't have adjoint var, it do not contribute to the target. So its adjoint is
+      // zeros
       auto it = adjoint_var_map_.find(var);
       if (it == adjoint_var_map_.end()) {
         UpdateAdjoint(var, NestedZeros(GetStructInfo(var)));
       }
-      Var adjoint_output_var = EmitAdjoint(var, adjoint_var_map_[var], false);
+      Var adjoint_output_var = EmitAdjoint(var, adjoint_var_map_[var], true);
       out_adjoints.push_back(adjoint_output_var);
     }
 
     return Tuple({orig_return_value, Tuple(out_adjoints)});
   }
 
-  // Transform the adjoint expressed as NestedMsg<Expr> into adjoint Expr, and then emit it
-  // If the adjoint is assigned to a DataflowVar (the adjoint corresponds to a non-output binding),
-  // it would be stored in adjoint_var_map_ for future lookup
-  Var EmitAdjoint(const Var& source_var, const Expr& adjoint, bool is_dataflow_var) {
+  // Emit the adjoint expr as the name `original_var_name` + "_adjoint"
+  Var EmitAdjoint(const Var& source_var, const Expr& adjoint, bool is_output) {
     Var adjoint_var;
-    if (is_dataflow_var) {
+    if (is_output) {
+      adjoint_var = builder_->EmitOutput(adjoint, source_var->name_hint() + "_adjoint_out");
+    } else {
       adjoint_var = builder_->Emit(adjoint, source_var->name_hint() + "_adjoint");
       adjoint_var_map_.Set(source_var, adjoint_var);
-    } else {
-      adjoint_var = builder_->EmitOutput(adjoint, source_var->name_hint() + "_adjoint_out");
     }
     return adjoint_var;
   }
@@ -325,8 +355,8 @@ class BackwardBindingGenerator : private ExprVisitor {
     });
   }
 
-  // Create a zeros AdjointMsg with specified struct info
-  // When sinfo is TupleStructInfo, we would create a nested zeros Tuple
+  // Create a zeros Expr with specified struct info
+  // When sinfo is TupleStructInfo, we would create a (nested) Tuple containing zeros
   static Expr NestedZeros(const StructInfo& sinfo) {
     AdjointMsg msg = MapToNestedMsg<Expr>(sinfo, [](StructInfo sinfo) {
       auto* tensor_sinfo = sinfo.as<TensorStructInfoNode>();
@@ -339,7 +369,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   }
 
   // Return lhs + rhs. Requires lhs and rhs has the same StructInfo.
-  // Spacially handles cases when lhs and rhs are tuples.
+  // Use NestedMsg to handle cases when lhs and rhs are tuples.
   static Expr TupleAwareAdd(const Expr& lhs, const Expr& rhs) {
     AdjointMsg res = CombineNestedMsg(
         ExprToAdjointMsg(lhs), ExprToAdjointMsg(rhs), [](Expr l_leaf, Expr r_leaf) {
@@ -385,6 +415,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   BlockBuilder builder_;
   // Forward Var to its adjoint Var
   Map<Var, Var> adjoint_var_map_;
+  // The generator for checkpoint bindings
   CheckpointGenerator checkpoint_generator_;
 };
 
@@ -427,6 +458,7 @@ class GradientMutator : private ExprMutator {
         checkpoint_(checkpoint),
         target_index_(target_index) {}
 
+  // Add the adjoint function of func to the IRModule using BlockBuilder
   IRModule AddAdjointFunction(const Function& func, const String& func_name,
                               bool remove_all_unused = true) {
     Function transformed_func = Downcast<Function>(VisitExpr(func));
@@ -532,6 +564,10 @@ class GradientMutator : private ExprMutator {
     }
   }
 
+  // checkpoint could contain:
+  // 1) Var. In this case, convert it to the Var in the copied function
+  // 2) String. In this case, convert it to the Var with this name in the copied function
+  // Also check all Vars in checkpoint occurs in the original function
   static Optional<Array<Var>> CheckAndUpdateCheckpoint(const Optional<Array<ObjectRef>>& checkpoint,
                                                        const Map<Var, Var>& var_map) {
     if (!checkpoint) {
